@@ -1,0 +1,20 @@
+{
+  "name": "ceo-dashboard",
+  "version": "1.0.0",
+  "description": "CEO Dashboard - 経営管理システム",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "dashboard",
+    "management",
+    "ceo"
+  ],
+  "author": "Your Organization",
+  "license": "MIT",
+  "engines": {
+    "node": "18.x"
+  }
+}
