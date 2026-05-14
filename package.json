@@ -1,7 +1,7 @@
 {
-  "name": "ceo-dashboard",
+  "name": "ih-system",
   "version": "1.0.0",
-  "description": "CEO Dashboard - 経営管理システム",
+  "description": "IH-SYSTEM - 経営構造化管理システム",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -12,9 +12,9 @@
     "management",
     "ceo"
   ],
-  "author": "Your Organization",
+  "author": "IH-SYSTEM",
   "license": "MIT",
   "engines": {
-    "node": "18.x"
+    "node": "24.x"
   }
 }

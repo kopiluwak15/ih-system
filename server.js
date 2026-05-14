@@ -44,11 +44,17 @@ const server = http.createServer((req, res) => {
   const fullPath = path.join(BASE_DIR, filePath);
 
   // Security: prevent directory traversal
-  const realPath = fs.realpathSync(fullPath);
-  if (!realPath.startsWith(BASE_DIR)) {
-    res.writeHead(403, { 'Content-Type': 'text/plain' });
-    res.end('Forbidden');
-    return;
+  try {
+    if (fs.existsSync(fullPath)) {
+      const realPath = fs.realpathSync(fullPath);
+      if (!realPath.startsWith(BASE_DIR)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' });
+        res.end('Forbidden');
+        return;
+      }
+    }
+  } catch (err) {
+    // File doesn't exist - will be handled by fs.stat below
   }
 
   // Check if file exists

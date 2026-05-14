@@ -3,8 +3,8 @@
  * CEO Dashboard - Multi-tenant Database Integration
  */
 
-const SUPABASE_URL = 'https://jbgqwdyvqpajbavbxems.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiZ3F3ZHl2cXBhamJhdmJ4ZW1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2NjYyMTQsImV4cCI6MjA5NDI0MjIxNH0.-lqYwJSj4jMDcQAZCzNMu3Nbk_AOhTvKVRzL3Sisuyg';
+const SUPABASE_URL = 'https://rhlsimhxmrxpgnafldze.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJobHNpbWh4bXJ4cGduYWZsZHplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2NDUxMjUsImV4cCI6MjA5NDIyMTEyNX0.yXKopAuzWMgQvU2bpZHBG4tAstYB0LpXFjx6bLCi85w';
 
 /**
  * Initialize Supabase Client

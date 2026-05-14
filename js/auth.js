@@ -1,209 +1,145 @@
 /**
- * Supabase Authentication Module
- * CEO Dashboard Auth Management
+ * Authentication Module
+ * IH-SYSTEM v2
  */
 
-// Supabase Configuration
-const SUPABASE_URL = 'https://jbgqwdyvqpajbavbxems.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiZ3F3ZHl2cXBhamJhdmJ4ZW1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2NjYyMTQsImV4cCI6MjA5NDI0MjIxNH0.-lqYwJSj4jMDcQAZCzNMu3Nbk_AOhTvKVRzL3Sisuyg';
-
-class AuthManager {
+class Auth {
   constructor() {
     this.currentUser = null;
-    this.initSupabaseAuth();
   }
 
-  initSupabaseAuth() {
-    // Check if user is already logged in
-    const savedAuth = localStorage.getItem('authUser');
-    if (savedAuth) {
+  async init() {
+    const saved = localStorage.getItem('ih_user');
+    if (saved) {
       try {
-        this.currentUser = JSON.parse(savedAuth);
-        this.showDashboard();
+        this.currentUser = JSON.parse(saved);
+        await this.showApp();
+        return;
       } catch (e) {
-        this.showLogin();
+        localStorage.removeItem('ih_user');
       }
-    } else {
-      this.showLogin();
     }
+    this.showLogin();
   }
 
   showLogin() {
     document.getElementById('loginScreen').style.display = 'flex';
-    document.getElementById('appContainer').style.display = 'none';
+    document.getElementById('app').style.display = 'none';
   }
 
-  showDashboard() {
+  async showApp() {
     document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('appContainer').style.display = 'flex';
-  }
-
-  async handleLogin(email, password) {
-    const loginError = document.getElementById('loginError');
-    loginError.style.display = 'none';
-
-    try {
-      // Validate credentials against staff database
-      const staffList = JSON.parse(localStorage.getItem('staff')) || [];
-      const staff = staffList.find(s => s.email === email);
-
-      if (!staff) {
-        loginError.textContent = 'メールアドレスが見つかりません。管理者に確認してください。';
-        loginError.style.display = 'block';
-        return false;
-      }
-
-      // Check password (in production, this should be done server-side)
-      if (staff.tempPassword !== password && staff.password !== password) {
-        loginError.textContent = 'パスワードが正しくありません。';
-        loginError.style.display = 'block';
-        return false;
-      }
-
-      // Check if password needs to be changed
-      if (staff.tempPassword === password) {
-        // First login - require password change
-        this.showPasswordChangeDialog(staff);
-        return false;
-      }
-
-      // Login successful
-      this.currentUser = {
-        id: staff.id,
-        email: staff.email,
-        name: staff.name,
-        role: staff.role,
-        store: staff.store,
-        loginTime: new Date().toISOString()
-      };
-
-      localStorage.setItem('authUser', JSON.stringify(this.currentUser));
-      localStorage.setItem('currentOrgId', staff.organization_id || 'default');
-
-      this.showDashboard();
-
-      // Initialize dashboard
-      if (window.ceoDashboard) {
-        window.ceoDashboard.onPageChanged('dashboard');
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Login error:', error);
-      loginError.textContent = 'ログイン処理でエラーが発生しました。';
-      loginError.style.display = 'block';
-      return false;
+    document.getElementById('app').style.display = 'grid';
+    this.renderUserInfo();
+    this.applyRolePermissions();
+    if (window.App) {
+      await window.App.init();
     }
   }
 
-  showPasswordChangeDialog(staff) {
-    const dialog = document.createElement('div');
-    dialog.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.5);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10001;
-    `;
+  renderUserInfo() {
+    const u = this.currentUser;
+    document.getElementById('userName').textContent = u.name;
+    document.getElementById('userRole').textContent = this.roleLabel(u.role);
+    document.getElementById('userAvatar').textContent = u.name.charAt(0);
+  }
 
-    dialog.innerHTML = `
-      <div style="background: white; padding: 32px; border-radius: 8px; max-width: 400px; width: 90%;">
-        <h2 style="margin: 0 0 16px 0; color: #333;">パスワード変更</h2>
-        <p style="margin: 0 0 24px 0; color: #666; font-size: 14px;">初回ログインのため、パスワードを変更してください。</p>
+  roleLabel(role) {
+    return { ceo: 'CEO', manager: 'マネージャー', staff: 'スタッフ' }[role] || role;
+  }
 
-        <form id="passwordChangeForm" style="display: grid; gap: 16px;">
-          <div>
-            <label style="display: block; margin-bottom: 6px; font-weight: 500;">新しいパスワード</label>
-            <input type="password" id="newPassword" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;" required>
-          </div>
+  applyRolePermissions() {
+    const isCEO = this.currentUser.role === 'ceo';
+    document.querySelectorAll('[data-ceo-only]').forEach(el => {
+      el.style.display = isCEO ? '' : 'none';
+    });
+  }
 
-          <div>
-            <label style="display: block; margin-bottom: 6px; font-weight: 500;">パスワード確認</label>
-            <input type="password" id="confirmPassword" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;" required>
-          </div>
+  async login(email, password) {
+    const errorEl = document.getElementById('loginError');
+    errorEl.textContent = '';
 
-          <button type="submit" style="padding: 10px; background: #667eea; color: white; border: none; border-radius: 4px; font-weight: 500; cursor: pointer;">パスワード変更</button>
-        </form>
-      </div>
-    `;
-
-    document.body.appendChild(dialog);
-
-    document.getElementById('passwordChangeForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const newPass = document.getElementById('newPassword').value;
-      const confirmPass = document.getElementById('confirmPassword').value;
-
-      if (newPass !== confirmPass) {
-        alert('パスワードが一致しません。');
+    try {
+      const staff = await db.getStaffByEmail(email);
+      if (!staff) {
+        errorEl.textContent = 'メールアドレスが見つかりません';
+        return;
+      }
+      if (staff.password_hash !== password) {
+        errorEl.textContent = 'パスワードが正しくありません';
+        return;
+      }
+      if (!staff.is_active) {
+        errorEl.textContent = 'このアカウントは無効化されています';
         return;
       }
 
-      if (newPass.length < 8) {
-        alert('パスワードは8文字以上にしてください。');
+      if (staff.is_first_login) {
+        await this.handleFirstLogin(staff);
         return;
       }
 
-      // Update staff password
-      const staffList = JSON.parse(localStorage.getItem('staff')) || [];
-      const staffIndex = staffList.findIndex(s => s.id === staff.id);
-      if (staffIndex !== -1) {
-        staffList[staffIndex].password = newPass;
-        staffList[staffIndex].tempPassword = null;
-        localStorage.setItem('staff', JSON.stringify(staffList));
-      }
-
-      dialog.remove();
-
-      // Now proceed with login
       this.currentUser = {
         id: staff.id,
         email: staff.email,
         name: staff.name,
-        role: staff.role,
-        store: staff.store,
-        loginTime: new Date().toISOString()
+        role: staff.role
       };
-
-      localStorage.setItem('authUser', JSON.stringify(this.currentUser));
-      this.showDashboard();
-
-      if (window.ceoDashboard) {
-        window.ceoDashboard.onPageChanged('dashboard');
-      }
-    });
+      localStorage.setItem('ih_user', JSON.stringify(this.currentUser));
+      await this.showApp();
+    } catch (err) {
+      console.error(err);
+      errorEl.textContent = 'ログインエラー: ' + err.message;
+    }
   }
 
-  logout() {
-    this.currentUser = null;
-    localStorage.removeItem('authUser');
-    this.showLogin();
-    document.getElementById('loginEmail').value = '';
+  async handleFirstLogin(staff) {
+    const newPass = prompt('初回ログインです。新しいパスワードを設定してください（8文字以上）:');
+    if (!newPass) return;
+    if (newPass.length < 8) {
+      alert('パスワードは8文字以上にしてください');
+      return;
+    }
+    const confirm = prompt('もう一度入力してください:');
+    if (newPass !== confirm) {
+      alert('パスワードが一致しません');
+      return;
+    }
+    await db.updateStaff(staff.id, {
+      password_hash: newPass,
+      is_first_login: false
+    });
+    alert('パスワードを変更しました。再度ログインしてください。');
     document.getElementById('loginPassword').value = '';
   }
 
-  getCurrentUser() {
-    return this.currentUser;
+  logout() {
+    localStorage.removeItem('ih_user');
+    this.currentUser = null;
+    location.reload();
+  }
+
+  isCEO() {
+    return this.currentUser?.role === 'ceo';
   }
 }
 
-// Initialize auth when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-  window.authManager = new AuthManager();
+const auth = new Auth();
 
-  // Setup login form
-  const loginForm = document.getElementById('loginForm');
-  if (loginForm) {
-    loginForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const email = document.getElementById('loginEmail').value;
-      const password = document.getElementById('loginPassword').value;
-      await window.authManager.handleLogin(email, password);
-    });
-  }
+document.addEventListener('DOMContentLoaded', () => {
+  // Login form
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    await auth.login(email, password);
+  });
+
+  // Logout
+  document.getElementById('logoutBtn').addEventListener('click', () => {
+    if (confirm('ログアウトしますか？')) auth.logout();
+  });
+
+  // Init
+  auth.init();
 });

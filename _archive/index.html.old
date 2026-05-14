@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CEO ダッシュボード</title>
+  <link rel="stylesheet" href="css/styles-modern.css">
+</head>
+<body>
+  <!-- ログイン画面 -->
+  <div id="loginScreen" class="login-screen" style="display: none;">
+    <div class="login-container">
+      <div class="login-card">
+        <div style="text-align: center; margin-bottom: 32px;">
+          <h1 style="margin: 0 0 8px 0; color: #333;">🎯 CEO ダッシュボード</h1>
+          <p style="margin: 0; color: #999; font-size: 14px;">経営管理システム</p>
+        </div>
+
+        <form id="loginForm" style="display: grid; gap: 16px;">
+          <div>
+            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #333;">メールアドレス</label>
+            <input type="email" id="loginEmail" class="form-input" placeholder="user@example.com" required style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;">
+          </div>
+
+          <div>
+            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #333;">パスワード</label>
+            <input type="password" id="loginPassword" class="form-input" placeholder="パスワード" required style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;">
+          </div>
+
+          <button type="submit" class="btn btn-primary" style="padding: 10px; background: #667eea; color: white; border: none; border-radius: 4px; font-weight: 500; cursor: pointer; width: 100%;">ログイン</button>
+
+          <div id="loginError" style="display: none; padding: 12px; background: #ffebee; color: #c62828; border-radius: 4px; font-size: 14px;"></div>
+        </form>
+
+        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #eee; text-align: center; font-size: 12px; color: #999;">
+          <p style="margin: 0;">初回ログインの方は、管理者から配布されたメールアドレスと仮パスワードを使用してください</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .login-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 400px;
+      padding: 20px;
+    }
+
+    .login-card {
+      background: white;
+      border-radius: 8px;
+      padding: 32px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+    }
+  </style>
+
+  <div class="app-container ceo-layout" id="appContainer" style="display: none;">
+    <!-- ヘッダー -->
+    <header class="app-header">
+      <div class="header-content">
+        <h1>🎯 CEO ダッシュボード</h1>
+        <div class="header-info">
+          <span class="org-name" id="orgName">IH-SYSTEM's Org</span>
+          <span class="user-role" id="userRole">CEO</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span id="currentUser" style="color: white; font-size: 14px;"></span>
+        <button id="logoutBtn" style="padding: 8px 16px; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 4px; cursor: pointer; font-size: 14px;">ログアウト</button>
+      </div>
+    </header>
+
+    <!-- メインコンテナ（サイドバー + メインコンテンツ） -->
+    <div class="main-container">
+      <!-- サイドメニュー -->
+      <aside class="sidebar">
+      <nav class="sidebar-nav">
+        <button class="sidebar-item active" data-page="dashboard">
+          <span class="icon">📊</span>
+          <span class="label">ダッシュボード</span>
+        </button>
+        <button class="sidebar-item" data-page="kgi-management">
+          <span class="icon">🎯</span>
+          <span class="label">KGI管理</span>
+        </button>
+        <button class="sidebar-item" data-page="store-management">
+          <span class="icon">🏪</span>
+          <span class="label">店舗管理</span>
+        </button>
+        <button class="sidebar-item" data-page="project-creation">
+          <span class="icon">➕</span>
+          <span class="label">プロジェクト作成</span>
+        </button>
+        <button class="sidebar-item" data-page="business-management">
+          <span class="icon">🏢</span>
+          <span class="label">事業管理</span>
+        </button>
+        <button class="sidebar-item" data-page="kgi-settings">
+          <span class="icon">🎯</span>
+          <span class="label">KGI設定</span>
+        </button>
+        <button class="sidebar-item" data-page="store-settings">
+          <span class="icon">⚙️</span>
+          <span class="label">店舗設定</span>
+        </button>
+        <button class="sidebar-item" data-page="staff-management">
+          <span class="icon">👥</span>
+          <span class="label">スタッフ管理</span>
+        </button>
+        <button class="sidebar-item" data-page="schedule">
+          <span class="icon">📅</span>
+          <span class="label">スケジュール</span>
+        </button>
+        <button class="sidebar-item" data-page="routine-tasks">
+          <span class="icon">🔄</span>
+          <span class="label">ルーティン作業</span>
+        </button>
+        <button class="sidebar-item" data-page="daily-report">
+          <span class="icon">📝</span>
+          <span class="label">日報報告</span>
+        </button>
+        <button class="sidebar-item" data-page="task-panel">
+          <span class="icon">⚡</span>
+          <span class="label">TP</span>
+          <span class="badge" id="tpBadge" style="display: none;">!</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- メインコンテンツ -->
+    <main class="main-content">
+
+      <!-- 1. ダッシュボード -->
+      <section id="dashboard" class="page active">
+        <div class="page-header">
+          <h2>📊 ダッシュボード</h2>
+          <p>各KGIの進捗率やプロジェクトの進捗具合を一目で可視化</p>
+        </div>
+        <div class="content-box">
+          <div id="dashboardContent">
+            <p style="color: #999; text-align: center; padding: 32px;">
+              KGI が登録されると、ここに進捗が表示されます
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. KGI管理 -->
+      <section id="kgi-management" class="page">
+        <div class="page-header">
+          <h2>🎯 KGI管理</h2>
+          <p>実行中のKGIとNEXT KGIを表示。クリックで展開して詳細確認</p>
+        </div>
+        <div class="content-box">
+          <div id="kgiContent">
+            <p style="color: #999; text-align: center; padding: 32px;">
+              KGI が登録されると、ここに表示されます
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. 店舗管理 -->
+      <section id="store-management" class="page">
+        <div class="page-header">
+          <h2>🏪 店舗管理</h2>
+          <p>各店舗のタブを切り替えて、プロジェクトやタスクを表示</p>
+        </div>
+        <div class="content-box">
+          <div class="store-tabs" id="storeTabs">
+            <p style="color: #999; text-align: center; padding: 32px;">
+              店舗が登録されると、ここにタブが表示されます
+            </p>
+          </div>
+          <div id="storeContent" style="margin-top: 20px;">
+            <p style="color: #999; text-align: center; padding: 32px;">
+              店舗を選択してください
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. プロジェクト作成 -->
+      <section id="project-creation" class="page">
+        <div class="page-header">
+          <h2>➕ プロジェクト作成</h2>
+          <p>課題またはタスクを選択してプロジェクトを作成。KPIツリーやマイルストーンを設計</p>
+        </div>
+        <div class="content-box">
+          <!-- Step 1: Basic Info -->
+          <form id="projectCreationForm">
+            <div class="form-group">
+              <label for="pcBusinessChannel">事業チャネル *</label>
+              <select id="pcBusinessChannel" class="form-input" required>
+                <option value="">-- 事業チャネルを選択 --</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="pcStore">店舗を選択</label>
+              <select id="pcStore" class="form-input">
+                <option value="">-- 店舗を選択 --</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="pcProjectName">プロジェクト名 *</label>
+              <input
+                type="text"
+                id="pcProjectName"
+                class="form-input"
+                placeholder="例：新規出店開店、売上改善施策"
+                required
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="pcProjectDesc">説明</label>
+              <textarea
+                id="pcProjectDesc"
+                class="form-textarea"
+                placeholder="例：6月末までに新規出店を開店させる"
+              ></textarea>
+            </div>
+
+            <!-- Project Type Selection (Course vs Task) -->
+            <div class="form-group">
+              <label>プロジェクトタイプ *</label>
+              <div style="display: flex; gap: 16px; margin-top: 8px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 12px; border: 2px solid #ddd; border-radius: 8px; flex: 1;">
+                  <input type="radio" name="projectType" value="course" class="projectTypeRadio" required>
+                  <span>
+                    <strong>課題</strong><br/>
+                    <small>KPIツリーで定量目標を設計</small>
+                  </span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 12px; border: 2px solid #ddd; border-radius: 8px; flex: 1;">
+                  <input type="radio" name="projectType" value="task" class="projectTypeRadio" required>
+                  <span>
+                    <strong>タスク</strong><br/>
+                    <small>マイルストーンで時間軸を設計</small>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="pcDeadline">期限 *</label>
+              <input
+                type="date"
+                id="pcDeadline"
+                class="form-input"
+                required
+              >
+            </div>
+
+            <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;">
+
+            <!-- KPI Tree Design (Course only) -->
+            <div id="kpiTreeSection" style="display: none;">
+              <h3>📊 KPIツリー設計</h3>
+              <p style="color: #666; margin-bottom: 16px;">このプロジェクトの定量的な目標をツリー構造で定義します</p>
+
+              <div class="form-group">
+                <label>テンプレートを選択（オプション）</label>
+                <select id="kpiTemplate" class="form-input">
+                  <option value="">-- カスタムで作成 --</option>
+                  <option value="retail">小売店舗売上改善</option>
+                  <option value="food">飲食店回転率改善</option>
+                  <option value="service">サービス業新規顧客獲得</option>
+                  <option value="ecommerce">オンラインストア転換率改善</option>
+                  <option value="staffretention">スタッフ定着率改善</option>
+                </select>
+              </div>
+
+              <div id="kpiTreeDesigner" style="background: #f9f9f9; padding: 16px; border-radius: 8px; margin: 16px 0;">
+                <div class="form-group">
+                  <label for="kpiRootTitle">最上位KPI *</label>
+                  <input type="text" id="kpiRootTitle" class="form-input" placeholder="例：売上目標達成（月100万円）" required>
+                </div>
+                <div class="form-group">
+                  <label for="kpiRootTarget">目標値 *</label>
+                  <input type="text" id="kpiRootTarget" class="form-input" placeholder="例：1,000,000" required>
+                </div>
+                <div class="form-group">
+                  <label for="kpiRootUnit">単位 *</label>
+                  <input type="text" id="kpiRootUnit" class="form-input" placeholder="例：円、件、%" required>
+                </div>
+
+                <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #ddd;">
+                  <h4>子KPI（複数追加可能）</h4>
+                  <div id="childKPIsContainer">
+                    <div class="child-kpi-row" style="margin-bottom: 12px; padding: 12px; background: white; border: 1px solid #ddd; border-radius: 4px;">
+                      <input type="text" class="form-input childKPITitle" placeholder="子KPIタイトル（例：既存客単価向上）" style="margin-bottom: 8px;">
+                      <div style="display: flex; gap: 8px;">
+                        <input type="text" class="form-input childKPITarget" placeholder="目標値" style="flex: 1;">
+                        <input type="text" class="form-input childKPIUnit" placeholder="単位" style="flex: 0.5;">
+                        <button type="button" class="removeChildKPI btn" style="padding: 8px 12px;">削除</button>
+                      </div>
+                    </div>
+                  </div>
+                  <button type="button" id="addChildKPIBtn" class="btn btn-secondary" style="margin-top: 8px;">子KPIを追加</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Milestone Design (Task only) -->
+            <div id="milestoneSection" style="display: none;">
+              <h3>📅 マイルストーン設計</h3>
+              <p style="color: #666; margin-bottom: 16px;">プロジェクトの進捗を時間軸で段階的に定義します</p>
+
+              <div id="milestonesContainer">
+                <div class="milestone-row" style="margin-bottom: 16px; padding: 16px; background: #f0f7ff; border-left: 4px solid #2196F3; border-radius: 4px;">
+                  <div class="form-group">
+                    <label class="milestoneName">マイルストーン1</label>
+                    <input type="text" class="form-input milestoneTitle" placeholder="例：要件定義完了" required>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>期限</label>
+                      <input type="date" class="form-input milestoneDate" required>
+                    </div>
+                    <div class="form-group">
+                      <label>説明</label>
+                      <input type="text" class="form-input milestoneDesc" placeholder="詳細説明">
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button type="button" id="addMilestoneBtn" class="btn btn-secondary" style="margin-top: 8px;">マイルストーンを追加</button>
+            </div>
+
+            <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #eee; display: flex; gap: 12px;">
+              <button type="submit" class="btn btn-primary">プロジェクトを作成</button>
+              <button type="button" id="previewProjectBtn" class="btn btn-secondary">プレビュー</button>
+            </div>
+          </form>
+
+          <!-- Project Preview -->
+          <div id="projectPreview" style="display: none; margin-top: 32px; padding: 20px; background: #f9f9f9; border-radius: 8px; border: 1px solid #eee;">
+            <h3>プロジェクトプレビュー</h3>
+            <div id="previewContent"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4.5 事業管理 -->
+      <section id="business-management" class="page">
+        <div class="page-header">
+          <h2>🏢 事業管理</h2>
+          <p>実店舗・プロダクト・ブランドなどの販売チャネルを登録・管理します</p>
+        </div>
+        <div class="content-box">
+          <form id="businessManagementForm">
+            <div class="form-group">
+              <label for="bmChannelType">チャネルタイプ *</label>
+              <select id="bmChannelType" class="form-input" required>
+                <option value="">-- チャネルタイプを選択 --</option>
+                <option value="physical_store">実店舗</option>
+                <option value="product">プロダクト</option>
+                <option value="brand">ブランド</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="bmCompanyName">会社名 *</label>
+              <input
+                type="text"
+                id="bmCompanyName"
+                class="form-input"
+                placeholder="例：株式会社〇〇"
+                required
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="bmDepartmentName">部署名</label>
+              <input
+                type="text"
+                id="bmDepartmentName"
+                class="form-input"
+                placeholder="例：営業部"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="bmProductName">プロダクト名（店舗名） *</label>
+              <input
+                type="text"
+                id="bmProductName"
+                class="form-input"
+                placeholder="例：渋谷店、プレミアムライン"
+                required
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="bmConcept">コンセプト</label>
+              <textarea
+                id="bmConcept"
+                class="form-textarea"
+                placeholder="例：20代向けの高級志向ブランド"
+              ></textarea>
+            </div>
+
+            <div class="form-group">
+              <label for="bmBusinessHours">営業時間</label>
+              <input
+                type="text"
+                id="bmBusinessHours"
+                class="form-input"
+                placeholder="例：10:00-22:00（月〜金）"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="bmPhone">電話番号</label>
+              <input
+                type="tel"
+                id="bmPhone"
+                class="form-input"
+                placeholder="例：090-1234-5678"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="bmEmail">メールアドレス</label>
+              <input
+                type="email"
+                id="bmEmail"
+                class="form-input"
+                placeholder="例：info@example.com"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="bmWebsite">ウェブサイト</label>
+              <input
+                type="url"
+                id="bmWebsite"
+                class="form-input"
+                placeholder="例：https://example.com"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="bmInstagram">Instagram</label>
+              <input
+                type="text"
+                id="bmInstagram"
+                class="form-input"
+                placeholder="例：@brand_name"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="bmAddress">住所</label>
+              <input
+                type="text"
+                id="bmAddress"
+                class="form-input"
+                placeholder="例：東京都渋谷区〇〇"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="bmNotes">備考</label>
+              <textarea
+                id="bmNotes"
+                class="form-textarea"
+                placeholder="その他の情報"
+              ></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary">事業を登録</button>
+          </form>
+
+          <div style="margin-top: 32px; padding-top: 32px; border-top: 1px solid #eee;">
+            <h3>登録済みの事業</h3>
+            <div id="registeredBusinessChannels">
+              <p style="color: #999;">まだ事業が登録されていません</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- KGI Settings -->
+      <section id="kgi-settings" class="page">
+        <div class="page-header">
+          <h2>🎯 KGI設定</h2>
+          <p>事業の直近KGIとネクストKGIを設定・管理する</p>
+        </div>
+
+        <div class="content-box">
+          <!-- Business Channel Selection -->
+          <div class="form-group">
+            <label for="kgiBusinessChannel">事業チャネル</label>
+            <select id="kgiBusinessChannel" class="form-input">
+              <option value="">-- 事業チャネルを選択 --</option>
+            </select>
+          </div>
+
+          <!-- Current KGI Section -->
+          <div class="form-section">
+            <h3>📌 直近KGI</h3>
+            <div class="form-group">
+              <label for="kgiTitle">KGIタイトル</label>
+              <input type="text" id="kgiTitle" class="form-input" placeholder="例：売上目標達成">
+            </div>
+            <div class="form-group">
+              <label for="kgiDescription">説明</label>
+              <textarea id="kgiDescription" class="form-textarea" placeholder="KGIの詳細説明"></textarea>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="kgiStartDate">開始日</label>
+                <input type="date" id="kgiStartDate" class="form-input">
+              </div>
+              <div class="form-group">
+                <label for="kgiEndDate">終了日</label>
+                <input type="date" id="kgiEndDate" class="form-input">
+              </div>
+            </div>
+            <button type="button" id="updateKGIBtn" class="btn btn-primary">KGIを更新</button>
+          </div>
+
+          <!-- Next KGI Section -->
+          <div class="form-section">
+            <h3>⭐ ネクストKGI</h3>
+            <div class="form-group">
+              <label for="nextKgiTitle">KGIタイトル</label>
+              <input type="text" id="nextKgiTitle" class="form-input" placeholder="例：新規顧客20件獲得">
+            </div>
+            <div class="form-group">
+              <label for="nextKgiDescription">説明</label>
+              <textarea id="nextKgiDescription" class="form-textarea" placeholder="ネクストKGIの詳細説明"></textarea>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="nextKgiStartDate">開始予定日</label>
+                <input type="date" id="nextKgiStartDate" class="form-input">
+              </div>
+              <div class="form-group">
+                <label for="nextKgiEndDate">終了予定日</label>
+                <input type="date" id="nextKgiEndDate" class="form-input">
+              </div>
+            </div>
+            <button type="button" id="updateNextKGIBtn" class="btn btn-primary">ネクストKGIを更新</button>
+          </div>
+
+          <!-- Related Projects -->
+          <div class="form-section">
+            <h3>📊 このKGIのためのプロジェクト</h3>
+            <div id="relatedProjects" style="padding: 16px; background: #f5f5f5; border-radius: 8px;">
+              <p style="color: #999; text-align: center;">プロジェクトが登録されると表示されます</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. 店舗設定 -->
+      <section id="store-settings" class="page">
+        <div class="page-header">
+          <h2>⚙️ 店舗設定</h2>
+          <p>ここで設定した店舗が「店舗管理」のタブとして表示される</p>
+        </div>
+        <div class="content-box">
+          <form id="storeSettingsForm">
+            <div class="form-group">
+              <label for="storeName">店舗名</label>
+              <input
+                type="text"
+                id="storeName"
+                class="form-input"
+                placeholder="例：A店"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="storeLocation">住所</label>
+              <input
+                type="text"
+                id="storeLocation"
+                class="form-input"
+                placeholder="例：東京都渋谷区"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="storeSpecs">店舗スペック</label>
+              <textarea
+                id="storeSpecs"
+                class="form-textarea"
+                placeholder="例：床面積100㎡、スタッフ5人"
+              ></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary">店舗を追加</button>
+          </form>
+
+          <div style="margin-top: 32px; padding-top: 32px; border-top: 1px solid #eee;">
+            <h3>登録済みの店舗</h3>
+            <div id="registeredStores">
+              <p style="color: #999;">まだ店舗が登録されていません</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Routine Tasks -->
+      <section id="routine-tasks" class="page">
+        <div class="page-header">
+          <h2>🔄 ルーティン作業</h2>
+          <p>スタッフの日常業務を管理・監視し、実行確認を行う</p>
+        </div>
+        <div class="content-box">
+          <!-- Routine Task Form -->
+          <form id="routineTaskForm">
+            <div class="form-group">
+              <label for="rtTitle">タスク名</label>
+              <input type="text" id="rtTitle" class="form-input" placeholder="例：朝礼、営業終了後レジ締め">
+            </div>
+
+            <div class="form-group">
+              <label for="rtDescription">説明</label>
+              <textarea id="rtDescription" class="form-textarea" placeholder="タスクの詳細説明"></textarea>
+            </div>
+
+            <div class="form-group">
+              <label for="rtFrequency">実施頻度</label>
+              <select id="rtFrequency" class="form-input">
+                <option value="">-- 選択 --</option>
+                <option value="daily">毎日</option>
+                <option value="weekly">週 1 回</option>
+                <option value="biweekly">隔週</option>
+                <option value="monthly">月 1 回</option>
+              </select>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="rtDay">曜日</label>
+                <select id="rtDay" class="form-input">
+                  <option value="">毎日の場合は不要</option>
+                  <option value="monday">月</option>
+                  <option value="tuesday">火</option>
+                  <option value="wednesday">水</option>
+                  <option value="thursday">木</option>
+                  <option value="friday">金</option>
+                  <option value="saturday">土</option>
+                  <option value="sunday">日</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="rtTime">時刻</label>
+                <input type="time" id="rtTime" class="form-input">
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">ルーティンを登録</button>
+          </form>
+
+          <!-- Active Routines List -->
+          <div style="margin-top: 32px; padding-top: 32px; border-top: 1px solid #eee;">
+            <h3>📋 実施中のルーティン</h3>
+            <div id="routinesList">
+              <p style="color: #999;">ルーティンが登録されると表示されます</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Daily Report -->
+      <section id="daily-report" class="page">
+        <div class="page-header">
+          <h2>📝 日報報告</h2>
+          <p>プロジェクトの進捗状況（KGI / マイルストーン / KPI）を日報で報告する</p>
+        </div>
+        <div class="content-box">
+          <!-- Report Form -->
+          <form id="dailyReportForm">
+            <div class="form-group">
+              <label for="drDate">報告日</label>
+              <input type="date" id="drDate" class="form-input">
+            </div>
+
+            <div class="form-group">
+              <label for="drProject">プロジェクト選択</label>
+              <select id="drProject" class="form-input">
+                <option value="">-- プロジェクトを選択 --</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="drKgiProgress">KGI進捗率 (%)</label>
+              <input type="number" id="drKgiProgress" class="form-input" min="0" max="100" placeholder="0">
+            </div>
+
+            <div class="form-group">
+              <label for="drMilestoneProgress">マイルストーン進捗率 (%)</label>
+              <input type="number" id="drMilestoneProgress" class="form-input" min="0" max="100" placeholder="0">
+            </div>
+
+            <div class="form-group">
+              <label for="drKpiProgress">KPI達成率 (%)</label>
+              <input type="number" id="drKpiProgress" class="form-input" min="0" max="100" placeholder="0">
+            </div>
+
+            <div class="form-group">
+              <label for="drNotes">備考・課題</label>
+              <textarea id="drNotes" class="form-textarea" placeholder="今日の成果、課題、明日の予定など"></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary">日報を報告</button>
+          </form>
+
+          <!-- Recent Reports -->
+          <div style="margin-top: 32px; padding-top: 32px; border-top: 1px solid #eee;">
+            <h3>📊 最近の報告</h3>
+            <div id="reportsList">
+              <p style="color: #999;">日報が登録されると表示されます</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5.5 スタッフ管理 -->
+      <section id="staff-management" class="page">
+        <div class="page-header">
+          <h2>👥 スタッフ管理</h2>
+          <p>スタッフを登録・管理します</p>
+        </div>
+        <div class="content-box">
+          <form id="staffManagementForm">
+            <div class="form-group">
+              <label for="staffName">スタッフ名 <span style="color: #ef5350;">*</span></label>
+              <input
+                type="text"
+                id="staffName"
+                class="form-input"
+                placeholder="例：太郎"
+                required
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="staffEmail">メールアドレス <span style="color: #ef5350;">*</span></label>
+              <input
+                type="email"
+                id="staffEmail"
+                class="form-input"
+                placeholder="例：taro@example.com"
+                required
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="staffRole">ロール <span style="color: #ef5350;">*</span></label>
+              <select id="staffRole" class="form-input" required>
+                <option value="">-- ロールを選択 --</option>
+                <option value="manager">マネージャー</option>
+                <option value="staff">スタッフ</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="staffStore">配属店舗</label>
+              <select id="staffStore" class="form-input">
+                <option value="">-- 店舗を選択 --</option>
+              </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary">スタッフを追加</button>
+          </form>
+
+          <div style="margin-top: 32px; padding-top: 32px; border-top: 1px solid #eee;">
+            <h3>登録済みのスタッフ</h3>
+            <div id="registeredStaff">
+              <p style="color: #999;">まだスタッフが登録されていません</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6. スケジュール -->
+      <section id="schedule" class="page">
+        <div class="page-header">
+          <h2>📅 スケジュール</h2>
+          <p>スタッフ毎のホールディングスケジュールを可視化（個人ではなく全体）</p>
+        </div>
+        <div class="content-box">
+          <div id="scheduleContent">
+            <p style="color: #999; text-align: center; padding: 32px;">
+              スケジュールデータが登録されると表示されます
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 7. ルーティン作業 -->
+      <section id="routine-tasks" class="page">
+        <div class="page-header">
+          <h2>🔄 ルーティン作業作成</h2>
+          <p>毎日必ずやることを設定。ここで記入したものはカレンダーに反映</p>
+        </div>
+        <div class="content-box">
+          <form id="routineTaskForm">
+            <div class="form-group">
+              <label for="routineTaskName">タスク名</label>
+              <input
+                type="text"
+                id="routineTaskName"
+                class="form-input"
+                placeholder="例：朝礼での5分『なぜ』説明"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="routineTaskDesc">説明</label>
+              <textarea
+                id="routineTaskDesc"
+                class="form-textarea"
+                placeholder="例：スタッフに今日のやることの意味を説明する"
+              ></textarea>
+            </div>
+
+            <div class="form-group">
+              <label for="routineTaskFreq">頻度</label>
+              <select id="routineTaskFreq" class="form-input">
+                <option value="daily">毎日</option>
+                <option value="weekly">毎週</option>
+                <option value="monthly">毎月</option>
+              </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary">ルーティンを追加</button>
+          </form>
+
+          <div style="margin-top: 32px; padding-top: 32px; border-top: 1px solid #eee;">
+            <h3>登録済みのルーティン</h3>
+            <div id="registeredRoutines">
+              <p style="color: #999;">まだルーティンが登録されていません</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 8. 日報報告 -->
+      <section id="daily-report" class="page">
+        <div class="page-header">
+          <h2>📝 日報報告</h2>
+          <p>各スタッフの日報を閲覧</p>
+        </div>
+        <div class="content-box">
+          <div id="dailyReportContent">
+            <p style="color: #999; text-align: center; padding: 32px;">
+              日報が登録されると、ここに表示されます
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 9. TP（Task Panel） -->
+      <section id="task-panel" class="page">
+        <div class="page-header">
+          <h2>⚡ TP（CEO タスク指示）</h2>
+          <p>CEO からのタスク指示。部長・マネージャー画面で点滅。期限超過が最も重い評価対象</p>
+        </div>
+        <div class="content-box">
+          <form id="taskPanelForm">
+            <div class="form-group">
+              <label for="tpTitle">タスク内容</label>
+              <input
+                type="text"
+                id="tpTitle"
+                class="form-input"
+                placeholder="例：A店店長候補の意思確認"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="tpDesc">詳細説明</label>
+              <textarea
+                id="tpDesc"
+                class="form-textarea"
+                placeholder="例：新規出店のための店長候補決定"
+              ></textarea>
+            </div>
+
+            <div class="form-group">
+              <label for="tpDeliverables">成果物</label>
+              <input
+                type="text"
+                id="tpDeliverables"
+                class="form-input"
+                placeholder="例：意思確認書"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="tpDeadline">期限</label>
+              <input
+                type="date"
+                id="tpDeadline"
+                class="form-input"
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="tpAssignee">担当者</label>
+              <select id="tpAssignee" class="form-input">
+                <option value="">-- 選択 --</option>
+                <option value="manager1">部長A</option>
+                <option value="manager2">マネージャーB</option>
+              </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary">タスクを発行</button>
+          </form>
+
+          <div style="margin-top: 32px; padding-top: 32px; border-top: 1px solid #eee;">
+            <h3>発行済みのタスク</h3>
+            <div id="issuedTasks">
+              <p style="color: #999;">まだタスクが発行されていません</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+    </div><!-- .main-container -->
+  </div><!-- .app-container -->
+
+  <!-- スクリプト -->
+  <script src="js/supabase-client.js"></script>
+  <script src="js/kpi-templates.js"></script>
+  <script src="js/storage.js"></script>
+
+  <!-- 組織情報初期化 -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const organization = localStorage.getItem('organization');
+      const organizationId = localStorage.getItem('organizationId') || null;
+
+      // 組織情報をページヘッダーに表示
+      try {
+        if (organization) {
+          const orgData = JSON.parse(organization);
+          const orgNameEl = document.getElementById('orgName');
+          if (orgNameEl) {
+            orgNameEl.textContent = orgData.name || 'CEO Dashboard';
+          }
+        }
+
+        // 現在の組織IDをグローバルに設定
+        window.CURRENT_ORG_ID = organizationId;
+      } catch (e) {
+        console.error('Failed to parse organization data:', e);
+      }
+    });
+  </script>
+
+  <script src="js/auth.js"></script>
+  <script src="js/app-ceo-supabase.js"></script>
+
+  <script>
+    // Setup logout and user display
+    document.addEventListener('DOMContentLoaded', () => {
+      const logoutBtn = document.getElementById('logoutBtn');
+      if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+          if (window.authManager) {
+            window.authManager.logout();
+          }
+        });
+      }
+
+      // Update user display
+      const currentUserEl = document.getElementById('currentUser');
+      const userRoleEl = document.getElementById('userRole');
+      if (window.authManager) {
+        const user = window.authManager.getCurrentUser();
+        if (user) {
+          if (currentUserEl) {
+            currentUserEl.textContent = user.name || user.email;
+          }
+          if (userRoleEl) {
+            userRoleEl.textContent = user.role || 'CEO';
+          }
+        }
+      }
+    });
+  </script></script>
+</body>
+</html>
