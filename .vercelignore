@@ -1,0 +1,7 @@
+server.js
+server.py
+node_modules
+.git
+_archive
+*.md
+supabase-schema*.sql
