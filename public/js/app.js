@@ -351,12 +351,27 @@ const App = {
   async renderRoutine() {
     const container = document.getElementById('routineContent');
     const isCEO = auth.isCEO();
-    let tasks = this.state.routineTasks;
-    if (!isCEO) {
-      tasks = tasks.filter(t => t.assigned_to === auth.currentUser.id);
+
+    // スタッフフィルター（CEO のみ表示）
+    let staffFilterHtml = '';
+    if (isCEO) {
+      const staffOptions = this.state.staff
+        .filter(s => s.is_active)
+        .map(s => `<option value="${s.id}">${s.name} (${this.roleLabel(s.role)})</option>`)
+        .join('');
+      staffFilterHtml = `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;background:var(--gray-50);padding:10px 14px;border-radius:8px;border:1px solid var(--border);">
+          <label style="font-size:12px;font-weight:600;color:var(--gray-700);min-width:100px;">👤 担当スタッフ</label>
+          <select id="routineStaffFilter" class="form-select" style="flex:1;max-width:300px;" onchange="App.applyRoutineStaffFilter()">
+            <option value="">-- 全員 --</option>
+            ${staffOptions}
+          </select>
+          <span id="routineFilterCount" class="text-muted" style="font-size:11px;"></span>
+        </div>
+      `;
     }
 
-    let html = `
+    let html = staffFilterHtml + `
       <div class="settings-tabs">
         <button class="routine-tab active" data-cycle="daily">📅 日次</button>
         <button class="routine-tab" data-cycle="weekly">📆 週次</button>
@@ -370,10 +385,37 @@ const App = {
     document.querySelectorAll('.routine-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         document.querySelectorAll('.routine-tab').forEach(t => t.classList.toggle('active', t === tab));
-        this.renderRoutineList(tab.dataset.cycle, tasks);
+        this.applyRoutineStaffFilter();
       });
     });
-    this.renderRoutineList('daily', tasks);
+    this.applyRoutineStaffFilter();
+  },
+
+  applyRoutineStaffFilter() {
+    const isCEO = auth.isCEO();
+    const selectedStaff = document.getElementById('routineStaffFilter')?.value || '';
+    const activeTab = document.querySelector('.routine-tab.active');
+    const cycle = activeTab?.dataset.cycle || 'daily';
+
+    let tasks = this.state.routineTasks;
+    if (!isCEO) {
+      tasks = tasks.filter(t => t.assigned_to === auth.currentUser.id);
+    } else if (selectedStaff) {
+      tasks = tasks.filter(t => t.assigned_to === selectedStaff);
+    }
+
+    // フィルター件数表示
+    const countEl = document.getElementById('routineFilterCount');
+    if (countEl) {
+      if (selectedStaff) {
+        const staff = this.state.staff.find(s => s.id === selectedStaff);
+        countEl.textContent = `${staff?.name || ''} のルーティン ${tasks.length}件`;
+      } else {
+        countEl.textContent = `全${tasks.length}件`;
+      }
+    }
+
+    this.renderRoutineList(cycle, tasks);
   },
 
   async renderRoutineList(cycle, tasks) {
@@ -432,27 +474,37 @@ const App = {
   openRoutineTaskModal(id = null) {
     const t = id ? this.state.routineTasks.find(x => x.id === id) : null;
     const staffOptions = this.state.staff
+      .filter(s => s.is_active)
       .map(s => `<option value="${s.id}" ${t?.assigned_to === s.id ? 'selected' : ''}>${s.name} (${this.roleLabel(s.role)})</option>`)
       .join('');
 
+    // フィルターで選んでいるスタッフを初期値に
+    const filterStaff = document.getElementById('routineStaffFilter')?.value;
+    const defaultAssignee = t?.assigned_to || filterStaff || '';
+
     this.showModal(t ? 'ルーティン編集' : '新規ルーティン指示', `
+      <div style="background:var(--primary-light);padding:12px 14px;border-radius:8px;margin-bottom:14px;border-left:4px solid var(--primary);">
+        <label style="font-size:13px;font-weight:700;color:var(--gray-900);display:block;margin-bottom:6px;">👤 誰のルーティン？ *</label>
+        <select id="rt_assignee" class="form-select" style="background:white;">
+          <option value="">-- 担当者を選択 --</option>
+          ${this.state.staff.filter(s => s.is_active).map(s =>
+            `<option value="${s.id}" ${defaultAssignee === s.id ? 'selected' : ''}>${s.name} (${this.roleLabel(s.role)})</option>`
+          ).join('')}
+        </select>
+        <p style="font-size:11px;color:var(--gray-600);margin-top:6px;">このスタッフが毎日/毎週/毎月実施するルーティンを設定します。</p>
+      </div>
+
       <div class="form-group">
         <label class="form-label">ルーティン名 *</label>
         <input type="text" id="rt_title" class="form-input" value="${t?.title || ''}" placeholder="例: 朝の店内チェック">
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">サイクル *</label>
-          <select id="rt_cycle" class="form-select">
-            <option value="daily" ${t?.cycle === 'daily' ? 'selected' : ''}>📅 日次（毎日）</option>
-            <option value="weekly" ${t?.cycle === 'weekly' ? 'selected' : ''}>📆 週次（毎週）</option>
-            <option value="monthly" ${t?.cycle === 'monthly' ? 'selected' : ''}>🗓 月次（毎月）</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">担当者 *</label>
-          <select id="rt_assignee" class="form-select"><option value="">-- 選択 --</option>${staffOptions}</select>
-        </div>
+      <div class="form-group">
+        <label class="form-label">サイクル *</label>
+        <select id="rt_cycle" class="form-select">
+          <option value="daily" ${t?.cycle === 'daily' ? 'selected' : ''}>📅 日次（毎日）</option>
+          <option value="weekly" ${t?.cycle === 'weekly' ? 'selected' : ''}>📆 週次（毎週）</option>
+          <option value="monthly" ${t?.cycle === 'monthly' ? 'selected' : ''}>🗓 月次（毎月）</option>
+        </select>
       </div>
       <div class="form-group">
         <label class="form-label">内容・手順</label>
