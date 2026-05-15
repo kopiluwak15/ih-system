@@ -56,6 +56,18 @@ class Auth {
     document.querySelectorAll('[data-non-ceo]').forEach(el => {
       el.style.display = isCEO ? 'none' : '';
     });
+
+    // 役割によってメニュー・タイトルを変更
+    const logsNavLabel = document.querySelector('[data-page="logs"] span:not(.icon):not(.badge)');
+    if (logsNavLabel) logsNavLabel.textContent = isCEO ? '日報履歴' : '日報作成';
+
+    const logsTitle = document.querySelector('#logs .page-title');
+    if (logsTitle) logsTitle.textContent = isCEO ? '📝 日報履歴' : '📝 日報作成';
+
+    const logsSubtitle = document.querySelector('#logs .page-subtitle');
+    if (logsSubtitle) logsSubtitle.textContent = isCEO
+      ? '提出された日報を閲覧（読み取り専用）'
+      : '本日の業務報告を作成・提出（プロジェクト進捗・課題・タスク・ルーティン）';
   }
 
   async login(email, password) {
