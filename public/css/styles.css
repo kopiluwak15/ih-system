@@ -656,6 +656,25 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* ===== Daily Report Sections ===== */
+.report-section {
+  margin-bottom: 20px;
+  padding: 14px;
+  background: var(--gray-50);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.report-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-800);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* ===== Hierarchy Tree v2 (Compact) ===== */
 .hierarchy-tree-v2 {
   background: white;

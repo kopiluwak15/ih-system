@@ -161,6 +161,27 @@ class SupabaseAPI {
     return this.request('POST', '/daily_logs', data);
   }
 
+  // ===== Daily Reports (構造化日報) =====
+  async getDailyReports(filter = {}) {
+    let query = '?order=report_date.desc,created_at.desc';
+    if (filter.staff_id) query += `&staff_id=eq.${filter.staff_id}`;
+    if (filter.report_date) query += `&report_date=eq.${filter.report_date}`;
+    if (filter.date_from) query += `&report_date=gte.${filter.date_from}`;
+    return this.request('GET', `/daily_reports${query}`);
+  }
+
+  async createDailyReport(data) {
+    return this.request('POST', '/daily_reports', data);
+  }
+
+  async updateDailyReport(id, data) {
+    return this.request('PATCH', `/daily_reports?id=eq.${id}`, data);
+  }
+
+  async deleteDailyReport(id) {
+    return this.request('DELETE', `/daily_reports?id=eq.${id}`);
+  }
+
   // ===== Task Instructions =====
   async getTaskInstructions(filter = {}) {
     let query = '?order=created_at.desc';

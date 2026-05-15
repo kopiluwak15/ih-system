@@ -1309,144 +1309,406 @@ const App = {
   // ===== Daily Logs =====
   async renderLogs() {
     const container = document.getElementById('logsContent');
-    const logs = await db.getDailyLogs();
-    const activeProjects = this.state.projects.filter(p => p.status === 'active');
+    const isCEO = auth.isCEO();
 
-    let html = '<h3 class="mb-2" style="font-size:15px;">プロジェクト別の最終更新</h3>';
-    if (activeProjects.length === 0) {
-      html += this.emptyState('📝', 'アクティブなプロジェクトなし', '承認されたプロジェクトに対して日報を記録できます');
-    } else {
-      html += '<div class="card"><table class="table"><thead><tr><th>プロジェクト</th><th>事業</th><th>最終アクション</th><th>日報数</th><th>進捗</th></tr></thead><tbody>';
-      activeProjects.forEach(p => {
-        const projectLogs = logs.filter(l => l.project_id === p.id);
-        const lastLog = projectLogs[0]; // 最新（log_date desc でソート済み）
-        const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
-        const isStalled = !lastLog || this.daysSince(lastLog.log_date) > 7;
-        html += `<tr style="${isStalled ? 'background:rgba(239,68,68,0.05);' : ''}">
-          <td><strong>${p.title}</strong></td>
-          <td class="text-muted">${unit?.name || '?'}</td>
-          <td class="text-muted">${lastLog ? `${lastLog.log_date} (${this.daysSince(lastLog.log_date)}日前)` : '<span class="badge badge-danger">未着手</span>'}</td>
-          <td>${projectLogs.length}件</td>
-          <td>
-            <div class="progress-bar" style="width:80px;"><div class="progress-fill" style="width:${p.progress_percent || 0}%"></div></div>
-            <div style="font-size:11px;margin-top:2px;">${p.progress_percent || 0}%</div>
-          </td>
-        </tr>`;
-      });
-      html += '</tbody></table></div>';
-    }
+    // CEO は全員の日報、それ以外は自分のだけ
+    const reports = isCEO
+      ? await db.getDailyReports()
+      : await db.getDailyReports({ staff_id: auth.currentUser.id });
 
-    html += '<h3 class="mt-3 mb-2" style="font-size:15px;">📜 日報履歴</h3>';
-    if (logs.length === 0) {
-      html += this.emptyState('📝', '日報なし', '');
-    } else {
-      html += '<div class="card">';
-      logs.slice(0, 30).forEach(l => {
-        const p = this.state.projects.find(x => x.id === l.project_id);
-        const s = this.state.staff.find(x => x.id === l.staff_id);
-        html += `<div style="padding:12px 0;border-bottom:1px solid var(--gray-100);">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-            <div><strong>${p?.title || '?'}</strong></div>
-            <div style="font-size:11px;color:var(--gray-500);">${l.log_date} ・ ${s?.name || '-'}</div>
+    // 今日の日報未提出スタッフ（CEO のみ）
+    let html = '';
+    if (isCEO) {
+      const today = new Date().toISOString().slice(0, 10);
+      const submittedToday = new Set(reports.filter(r => r.report_date === today).map(r => r.staff_id));
+      const notSubmitted = this.state.staff.filter(s =>
+        s.is_active && s.role !== 'ceo' && !submittedToday.has(s.id)
+      );
+      if (notSubmitted.length > 0) {
+        html += `<div class="card" style="background:#fef3c7;border-color:#fbbf24;">
+          <div class="card-header">
+            <div class="card-title" style="color:#92400e;">⚠️ 今日の日報未提出: ${notSubmitted.length}名</div>
           </div>
-          <div style="font-size:13px;color:var(--gray-700);">${l.action_content}</div>
-          ${l.kpi_value_change ? `<div style="font-size:11px;color:var(--success);margin-top:4px;">KPI 変化: ${l.kpi_value_change > 0 ? '+' : ''}${l.kpi_value_change}</div>` : ''}
-          ${l.milestone_completed ? `<div style="font-size:11px;color:var(--success);margin-top:4px;">✅ マイルストーン完了</div>` : ''}
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            ${notSubmitted.map(s => `<span class="badge badge-warning">${s.name}</span>`).join('')}
+          </div>
         </div>`;
-      });
-      html += '</div>';
+      }
     }
+
+    // 日報一覧
+    if (reports.length === 0) {
+      html += this.emptyState('📝', '日報なし',
+        isCEO ? 'マネージャー/スタッフの日報が表示されます' : '右上の「+ 今日の日報を書く」から作成');
+    } else {
+      reports.slice(0, 30).forEach(r => {
+        html += this.renderDailyReportCard(r);
+      });
+    }
+
     container.innerHTML = html;
   },
 
+  renderDailyReportCard(r) {
+    const s = this.state.staff.find(x => x.id === r.staff_id);
+    const isMine = r.staff_id === auth.currentUser.id;
+    const projects = r.projects || [];
+    const issues = r.issues || [];
+    const completedTasks = r.completed_tasks || [];
+    const routines = r.routines || [];
+
+    return `<div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${r.report_date} の日報</div>
+          <div class="text-muted" style="font-size:11px;margin-top:2px;">作成: ${s?.name || '-'} (${this.roleLabel(s?.role)})</div>
+        </div>
+        <div class="flex gap-1">
+          ${isMine ? `<button class="btn btn-sm btn-secondary" onclick="App.openReportModal('${r.id}')">編集</button>` : ''}
+          ${isMine || auth.isCEO() ? `<button class="btn btn-sm btn-danger" onclick="App.deleteReport('${r.id}')">削除</button>` : ''}
+        </div>
+      </div>
+
+      ${projects.length > 0 ? `
+        <div class="mb-2">
+          <div style="font-size:12px;font-weight:600;color:var(--gray-700);margin-bottom:6px;">📊 プロジェクト進捗</div>
+          ${projects.map(p => {
+            const proj = this.state.projects.find(x => x.id === p.project_id);
+            return `<div style="padding:8px 12px;background:var(--gray-50);border-radius:6px;margin-bottom:6px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:4px;">
+                <strong>${proj?.title || '?'}</strong>
+                <span class="badge badge-info">${p.progress || 0}%</span>
+              </div>
+              <div style="font-size:12px;color:var(--gray-700);">${p.action || ''}</div>
+            </div>`;
+          }).join('')}
+        </div>
+      ` : ''}
+
+      ${issues.length > 0 ? `
+        <div class="mb-2">
+          <div style="font-size:12px;font-weight:600;color:var(--gray-700);margin-bottom:6px;">⚠️ 課題・壁</div>
+          ${issues.map(i => `<div style="padding:8px 12px;background:#fee2e2;border-radius:6px;margin-bottom:6px;border-left:3px solid var(--danger);">
+            <div style="font-size:12px;font-weight:600;color:#991b1b;">${i.title}</div>
+            ${i.description ? `<div style="font-size:11px;color:var(--gray-700);margin-top:2px;">${i.description}</div>` : ''}
+          </div>`).join('')}
+        </div>
+      ` : ''}
+
+      ${completedTasks.length > 0 ? `
+        <div class="mb-2">
+          <div style="font-size:12px;font-weight:600;color:var(--gray-700);margin-bottom:6px;">✅ 完了したタスク指示</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${completedTasks.map(tid => {
+              const t = this.state.taskInstructions.find(x => x.id === tid);
+              return `<span class="badge badge-success">${t?.title || '?'}</span>`;
+            }).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      ${routines.length > 0 ? `
+        <div class="mb-2">
+          <div style="font-size:12px;font-weight:600;color:var(--gray-700);margin-bottom:6px;">🔄 ルーティン報告</div>
+          ${routines.map(rt => {
+            const r = this.state.routineTasks.find(x => x.id === rt.routine_task_id);
+            return `<div style="padding:6px 10px;background:${rt.has_issue ? '#fef3c7' : 'var(--gray-50)'};border-radius:6px;margin-bottom:4px;font-size:12px;">
+              ${rt.has_issue ? '⚠️ ' : '✅ '}<strong>${r?.title || '?'}</strong>
+              ${rt.issue_note ? `<div style="font-size:11px;color:var(--gray-700);margin-top:2px;">${rt.issue_note}</div>` : ''}
+            </div>`;
+          }).join('')}
+        </div>
+      ` : ''}
+
+      ${r.tomorrow_plan ? `
+        <div class="mb-2">
+          <div style="font-size:12px;font-weight:600;color:var(--gray-700);margin-bottom:4px;">📅 明日の予定</div>
+          <div style="font-size:12px;color:var(--gray-700);padding:8px 12px;background:var(--gray-50);border-radius:6px;">${r.tomorrow_plan}</div>
+        </div>
+      ` : ''}
+
+      ${r.comment ? `
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--gray-700);margin-bottom:4px;">💬 一言</div>
+          <div style="font-size:12px;color:var(--gray-700);padding:8px 12px;background:var(--primary-light);border-radius:6px;">${r.comment}</div>
+        </div>
+      ` : ''}
+    </div>`;
+  },
+
   async openLogModal() {
-    const activeProjects = this.state.projects.filter(p =>
-      p.status === 'active' &&
-      (auth.isCEO() || p.assigned_to === auth.currentUser.id)
-    );
-    if (activeProjects.length === 0) {
-      this.toast('アクティブなプロジェクトがありません', 'error');
+    if (auth.isCEO()) {
+      this.toast('CEOは閲覧専用です', 'warning');
       return;
     }
+    this.openReportModal();
+  },
 
-    const projectOpts = activeProjects.map(p => `<option value="${p.id}">${p.title}</option>`).join('');
-    this.showModal('日報を記録', `
-      <div class="form-group">
-        <label class="form-label">プロジェクト *</label>
-        <select id="l_project" class="form-select" onchange="App.onLogProjectChange()">
-          <option value="">-- 選択 --</option>${projectOpts}
-        </select>
-      </div>
+  async openReportModal(reportId = null) {
+    const existing = reportId ? (await db.getDailyReports()).find(r => r.id === reportId) : null;
+
+    // 自分が担当のプロジェクト
+    const myProjects = this.state.projects.filter(p =>
+      p.status === 'active' && p.assigned_to === auth.currentUser.id
+    );
+
+    // 自分宛の未完了タスク指示
+    const myTasks = this.state.taskInstructions.filter(t =>
+      t.assigned_to === auth.currentUser.id && t.status !== 'completed'
+    );
+
+    // 自分の今日のルーティン
+    const myRoutines = this.state.routineTasks.filter(t =>
+      t.assigned_to === auth.currentUser.id && t.is_active
+    );
+
+    const existingProjects = existing?.projects || [];
+    const existingIssues = existing?.issues || [];
+    const existingCompletedTasks = new Set(existing?.completed_tasks || []);
+    const existingRoutines = existing?.routines || [];
+
+    const bodyHtml = `
+      <p class="text-muted mb-2" style="font-size:12px;">本日の業務報告を記入してください。</p>
+
       <div class="form-group">
         <label class="form-label">日付</label>
-        <input type="date" id="l_date" class="form-input" value="${new Date().toISOString().slice(0,10)}">
+        <input type="date" id="r_date" class="form-input" value="${existing?.report_date || new Date().toISOString().slice(0,10)}">
       </div>
-      <div class="form-group">
-        <label class="form-label">今日の行動 *</label>
-        <textarea id="l_action" class="form-textarea" placeholder="このプロジェクトに対して、今日何をしたか" rows="4"></textarea>
-      </div>
-      <div id="l_kpiArea"></div>
-      <div id="l_msArea"></div>
-    `, async () => {
-      const data = {
-        project_id: document.getElementById('l_project').value,
-        log_date: document.getElementById('l_date').value,
-        action_content: document.getElementById('l_action').value.trim(),
-        staff_id: auth.currentUser.id
-      };
-      if (!data.project_id || !data.action_content) {
-        this.toast('プロジェクトと内容は必須', 'error');
-        return false;
-      }
 
-      // KPI 更新
-      const kpiSelect = document.getElementById('l_kpi');
-      if (kpiSelect && kpiSelect.value) {
-        const change = parseFloat(document.getElementById('l_kpi_change').value);
-        if (!isNaN(change)) {
-          data.kpi_id = kpiSelect.value;
-          data.kpi_value_change = change;
-        }
-      }
-      // マイルストーン完了
-      const msSelect = document.getElementById('l_ms');
-      if (msSelect && msSelect.value) {
-        data.milestone_id = msSelect.value;
-        data.milestone_completed = document.getElementById('l_ms_done').checked;
-      }
+      <!-- 1. プロジェクト進捗 -->
+      <div class="report-section">
+        <div class="report-section-title">📊 プロジェクト進捗 <span class="text-muted" style="font-size:11px;">プロジェクト + 行動 + 進捗率</span></div>
+        <div id="r_projectsList"></div>
+        ${myProjects.length > 0 ? `<button type="button" class="btn btn-sm btn-secondary" onclick="App.addReportProjectRow()">+ プロジェクト追加</button>` : '<p class="text-muted" style="font-size:11px;">担当プロジェクトなし</p>'}
+      </div>
+
+      <!-- 2. 課題抽出 -->
+      <div class="report-section">
+        <div class="report-section-title">⚠️ 課題抽出 <span class="text-muted" style="font-size:11px;">ぶち当たった壁・エラー</span></div>
+        <div id="r_issuesList"></div>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="App.addReportIssueRow()">+ 課題追加</button>
+      </div>
+
+      <!-- 3. タスク完了 -->
+      <div class="report-section">
+        <div class="report-section-title">✅ タスク完了報告</div>
+        ${myTasks.length === 0 ? '<p class="text-muted" style="font-size:11px;">未完了の指示なし</p>' :
+          myTasks.map(t => `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;">
+            <input type="checkbox" class="r_task" value="${t.id}" ${existingCompletedTasks.has(t.id) ? 'checked' : ''}>
+            <span>${t.title}</span>
+            <span class="text-muted" style="font-size:10px;">${t.deadline || ''}</span>
+          </label>`).join('')}
+      </div>
+
+      <!-- 4. ルーティン -->
+      <div class="report-section">
+        <div class="report-section-title">🔄 ルーティン報告</div>
+        ${myRoutines.length === 0 ? '<p class="text-muted" style="font-size:11px;">担当ルーティンなし</p>' :
+          myRoutines.map(r => {
+            const existingR = existingRoutines.find(x => x.routine_task_id === r.id);
+            return `<div style="padding:8px 0;border-bottom:1px solid var(--gray-100);">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+                <input type="checkbox" class="r_routine_done" data-id="${r.id}" ${existingR ? 'checked' : ''}>
+                <span>${r.title}</span>
+                <span class="text-muted" style="font-size:10px;">${{daily:'毎日',weekly:'毎週',monthly:'毎月'}[r.cycle]}</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;margin-top:4px;font-size:11px;margin-left:24px;">
+                <input type="checkbox" class="r_routine_issue" data-id="${r.id}" ${existingR?.has_issue ? 'checked' : ''}>
+                <span>問題あり</span>
+              </label>
+              <textarea class="form-textarea r_routine_note" data-id="${r.id}" style="margin-top:4px;margin-left:24px;width:calc(100% - 24px);font-size:12px;min-height:40px;" placeholder="問題の詳細（任意）">${existingR?.issue_note || ''}</textarea>
+            </div>`;
+          }).join('')}
+      </div>
+
+      <!-- 5. 明日の予定 -->
+      <div class="form-group">
+        <label class="form-label">📅 明日の予定</label>
+        <textarea id="r_tomorrow" class="form-textarea" rows="2" placeholder="明日取り組む内容">${existing?.tomorrow_plan || ''}</textarea>
+      </div>
+
+      <!-- 6. 一言意見 -->
+      <div class="form-group">
+        <label class="form-label">💬 一言・感想・意見</label>
+        <textarea id="r_comment" class="form-textarea" rows="2" placeholder="所感・気づき・提案など">${existing?.comment || ''}</textarea>
+      </div>
+    `;
+
+    this.showModal(existing ? '日報を編集' : '本日の日報を作成', bodyHtml, async () => {
+      // プロジェクト進捗を収集
+      const projects = [];
+      document.querySelectorAll('.r_project_row').forEach(row => {
+        const pid = row.querySelector('.r_p_id').value;
+        const action = row.querySelector('.r_p_action').value.trim();
+        const progress = parseInt(row.querySelector('.r_p_progress').value) || 0;
+        if (pid && action) projects.push({ project_id: pid, action, progress });
+      });
+
+      // 課題を収集
+      const issues = [];
+      document.querySelectorAll('.r_issue_row').forEach(row => {
+        const title = row.querySelector('.r_i_title').value.trim();
+        const description = row.querySelector('.r_i_desc').value.trim();
+        if (title) issues.push({ title, description });
+      });
+
+      // 完了タスク
+      const completed_tasks = Array.from(document.querySelectorAll('.r_task:checked')).map(cb => cb.value);
+
+      // ルーティン
+      const routines = [];
+      document.querySelectorAll('.r_routine_done:checked').forEach(cb => {
+        const id = cb.dataset.id;
+        const issueCheckbox = document.querySelector(`.r_routine_issue[data-id="${id}"]`);
+        const noteEl = document.querySelector(`.r_routine_note[data-id="${id}"]`);
+        routines.push({
+          routine_task_id: id,
+          has_issue: issueCheckbox?.checked || false,
+          issue_note: noteEl?.value.trim() || ''
+        });
+      });
+
+      const data = {
+        staff_id: auth.currentUser.id,
+        report_date: document.getElementById('r_date').value,
+        projects,
+        issues,
+        completed_tasks,
+        routines,
+        tomorrow_plan: document.getElementById('r_tomorrow').value.trim(),
+        comment: document.getElementById('r_comment').value.trim()
+      };
 
       try {
-        await db.createDailyLog(data);
+        if (existing) {
+          await db.updateDailyReport(existing.id, data);
+        } else {
+          await db.createDailyReport(data);
+        }
 
-        // KPI 値を更新
-        if (data.kpi_id && data.kpi_value_change) {
-          const kpis = await db.getKPIs(data.project_id);
-          const kpi = kpis.find(k => k.id === data.kpi_id);
-          if (kpi) {
-            const newVal = (kpi.current_value || 0) + data.kpi_value_change;
-            await db.updateKPI(data.kpi_id, { current_value: newVal });
+        // タスク指示を完了状態に更新
+        for (const tid of completed_tasks) {
+          const task = this.state.taskInstructions.find(t => t.id === tid);
+          if (task && task.status !== 'completed') {
+            await db.updateTaskInstruction(tid, {
+              status: 'completed',
+              completed_at: new Date().toISOString()
+            });
           }
         }
-        // マイルストーン完了
-        if (data.milestone_id && data.milestone_completed) {
-          await db.updateMilestone(data.milestone_id, {
-            status: 'completed',
-            completed_at: new Date().toISOString()
+
+        // ルーティンログを登録
+        for (const rt of routines) {
+          await db.createRoutineLog({
+            routine_task_id: rt.routine_task_id,
+            staff_id: auth.currentUser.id,
+            log_date: data.report_date,
+            content: rt.has_issue ? `[問題あり] ${rt.issue_note}` : '完了'
+          }).catch(() => {});
+        }
+
+        // プロジェクト進捗を更新
+        for (const p of projects) {
+          await db.updateProject(p.project_id, {
+            progress_percent: p.progress,
+            status: p.progress >= 100 ? 'completed' : 'active'
           });
         }
 
-        // 進捗を再計算
-        await this.recalculateProgress(data.project_id);
+        // 課題を新規プロジェクトとして登録（オプション、今回はスキップ）
+
+        // CEO に通知
+        const ceos = this.state.staff.filter(s => s.role === 'ceo');
+        for (const ceo of ceos) {
+          await db.createNotification({
+            recipient_id: ceo.id,
+            type: 'daily_log_added',
+            title: `${auth.currentUser.name} の日報`,
+            message: `${data.report_date} の日報が提出されました`
+          }).catch(() => {});
+        }
 
         await this.loadAllData();
         this.renderCurrentPage();
-        this.toast('日報を記録しました');
+        this.toast(existing ? '日報を更新しました' : '日報を提出しました');
         return true;
       } catch (e) {
         this.toast('エラー: ' + e.message, 'error');
         return false;
       }
     });
+
+    // 既存のプロジェクト/課題を復元、または初期1行
+    setTimeout(() => {
+      if (existingProjects.length > 0) {
+        existingProjects.forEach(p => this.addReportProjectRow(p));
+      }
+      if (existingIssues.length > 0) {
+        existingIssues.forEach(i => this.addReportIssueRow(i));
+      }
+    }, 50);
+  },
+
+  addReportProjectRow(existing = null) {
+    const list = document.getElementById('r_projectsList');
+    const myProjects = this.state.projects.filter(p =>
+      p.status === 'active' && p.assigned_to === auth.currentUser.id
+    );
+    if (myProjects.length === 0) return;
+    const projOpts = myProjects.map(p =>
+      `<option value="${p.id}" ${existing?.project_id === p.id ? 'selected' : ''}>${p.title} (現在 ${p.progress_percent || 0}%)</option>`
+    ).join('');
+
+    const row = document.createElement('div');
+    row.className = 'r_project_row';
+    row.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;position:relative;';
+    row.innerHTML = `
+      <button type="button" onclick="this.parentElement.remove()" style="position:absolute;top:6px;right:6px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px;">×</button>
+      <div class="form-group" style="margin-bottom:8px;">
+        <label class="form-label">プロジェクト</label>
+        <select class="form-select r_p_id"><option value="">-- 選択 --</option>${projOpts}</select>
+      </div>
+      <div class="form-group" style="margin-bottom:8px;">
+        <label class="form-label">行動ログ</label>
+        <textarea class="form-textarea r_p_action" rows="2" placeholder="今日このプロジェクトに対して行ったこと">${existing?.action || ''}</textarea>
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">進捗率 (%)</label>
+        <input type="number" class="form-input r_p_progress" min="0" max="100" value="${existing?.progress ?? ''}" placeholder="0-100">
+      </div>
+    `;
+    list.appendChild(row);
+  },
+
+  addReportIssueRow(existing = null) {
+    const list = document.getElementById('r_issuesList');
+    const row = document.createElement('div');
+    row.className = 'r_issue_row';
+    row.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;position:relative;background:#fef9e7;';
+    row.innerHTML = `
+      <button type="button" onclick="this.parentElement.remove()" style="position:absolute;top:6px;right:6px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px;">×</button>
+      <div class="form-group" style="margin-bottom:8px;">
+        <label class="form-label">課題タイトル</label>
+        <input type="text" class="form-input r_i_title" placeholder="例: 〇〇システムの認証エラー" value="${existing?.title || ''}">
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">詳細</label>
+        <textarea class="form-textarea r_i_desc" rows="2" placeholder="状況・原因・対応案など">${existing?.description || ''}</textarea>
+      </div>
+    `;
+    list.appendChild(row);
+  },
+
+  async deleteReport(id) {
+    if (!confirm('この日報を削除しますか？')) return;
+    try {
+      await db.deleteDailyReport(id);
+      await this.loadAllData();
+      this.renderCurrentPage();
+      this.toast('日報を削除しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
   },
 
   async onLogProjectChange() {

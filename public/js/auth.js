@@ -53,6 +53,9 @@ class Auth {
     document.querySelectorAll('[data-ceo-only]').forEach(el => {
       el.style.display = isCEO ? '' : 'none';
     });
+    document.querySelectorAll('[data-non-ceo]').forEach(el => {
+      el.style.display = isCEO ? 'none' : '';
+    });
   }
 
   async login(email, password) {
