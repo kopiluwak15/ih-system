@@ -623,7 +623,7 @@ const App = {
     html += '</div>';
 
     // 進行中プロジェクト一覧
-    html += '<h3 class="mt-3 mb-2" style="font-size:16px;">🎯 進行中のプロジェクト</h3>';
+    html += '<h3 style="font-size:13px;font-weight:600;color:var(--gray-700);margin:14px 0 6px 0;">🎯 進行中のプロジェクト</h3>';
     if (active.length === 0) {
       html += this.emptyState('🎯', '進行中プロジェクトなし', '「課題抽出」から新しい課題を作成してください');
     } else {
