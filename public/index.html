@@ -59,6 +59,13 @@
       <div class="nav-item" data-page="logs">
         <span class="icon">📝</span><span>日報</span>
       </div>
+      <div class="nav-item" data-page="task-instructions">
+        <span class="icon">📋</span><span>タスク指示</span>
+        <span id="taskInstructionBadge" class="badge hidden">0</span>
+      </div>
+      <div class="nav-item" data-page="routine">
+        <span class="icon">🔄</span><span>ルーティン指示</span>
+      </div>
       <div class="nav-item" data-page="staff" data-ceo-only>
         <span class="icon">👥</span><span>スタッフ管理</span>
       </div>
@@ -178,6 +185,30 @@
         <button class="btn btn-primary" id="addLogBtn">+ 新規日報</button>
       </div>
       <div id="logsContent"></div>
+    </section>
+
+    <!-- Task Instructions (タスク指示) -->
+    <section id="task-instructions" class="page">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">📋 タスク指示</h2>
+          <p class="page-subtitle">明確な指示を出してマネージャーに伝達</p>
+        </div>
+        <button class="btn btn-primary" id="addTaskInstructionBtn" data-ceo-only>+ 新規指示</button>
+      </div>
+      <div id="taskInstructionsContent"></div>
+    </section>
+
+    <!-- Routine Tasks (ルーティン指示) -->
+    <section id="routine" class="page">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">🔄 ルーティン指示</h2>
+          <p class="page-subtitle">日次・週次・月次の定期実行タスク</p>
+        </div>
+        <button class="btn btn-primary" id="addRoutineTaskBtn" data-ceo-only>+ 新規ルーティン</button>
+      </div>
+      <div id="routineContent"></div>
     </section>
 
     <!-- Staff -->

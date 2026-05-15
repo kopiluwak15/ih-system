@@ -10,6 +10,8 @@ const App = {
     projects: [],
     staff: [],
     notifications: [],
+    taskInstructions: [],
+    routineTasks: [],
     currentPage: 'dashboard'
   },
 
@@ -25,25 +27,44 @@ const App = {
 
   async loadAllData() {
     try {
-      const [companies, businessUnits, projects, staff] = await Promise.all([
+      const [companies, businessUnits, projects, staff, taskInstructions, routineTasks] = await Promise.all([
         db.getCompanies(),
         db.getBusinessUnits(),
         db.getProjects(),
-        db.getAllStaff()
+        db.getAllStaff(),
+        db.getTaskInstructions().catch(() => []),
+        db.getRoutineTasks({ is_active: true }).catch(() => [])
       ]);
       this.state.companies = companies;
       this.state.businessUnits = businessUnits;
       this.state.projects = projects;
       this.state.staff = staff;
+      this.state.taskInstructions = taskInstructions;
+      this.state.routineTasks = routineTasks;
 
       if (auth.currentUser?.id) {
         this.state.notifications = await db.getNotifications(auth.currentUser.id);
         this.updateNotificationBadge();
         this.updateApprovalBadge();
+        this.updateTaskInstructionBadge();
       }
     } catch (err) {
       console.error('Load error:', err);
       this.toast('データ読み込みエラー: ' + err.message, 'error');
+    }
+  },
+
+  updateTaskInstructionBadge() {
+    // 自分宛で未確認のタスク指示の数を表示
+    const myPending = this.state.taskInstructions.filter(t =>
+      t.assigned_to === auth.currentUser.id && t.status === 'pending'
+    ).length;
+    const badge = document.getElementById('taskInstructionBadge');
+    if (myPending > 0) {
+      badge.textContent = myPending;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
     }
   },
 
@@ -104,6 +125,8 @@ const App = {
       design: () => this.renderDesign(),
       approval: () => this.renderApproval(),
       logs: () => this.renderLogs(),
+      'task-instructions': () => this.renderTaskInstructions(),
+      routine: () => this.renderRoutine(),
       staff: () => this.renderStaff(),
       notifications: () => this.renderNotifications(),
       settings: () => this.renderSettings()
@@ -136,6 +159,363 @@ const App = {
     document.getElementById('addProjectBtn')?.addEventListener('click', () => this.openProjectModal());
     document.getElementById('addLogBtn')?.addEventListener('click', () => this.openLogModal());
     document.getElementById('addStaffBtn')?.addEventListener('click', () => this.openStaffModal());
+    document.getElementById('addTaskInstructionBtn')?.addEventListener('click', () => this.openTaskInstructionModal());
+    document.getElementById('addRoutineTaskBtn')?.addEventListener('click', () => this.openRoutineTaskModal());
+  },
+
+  // ===== Task Instructions =====
+  renderTaskInstructions() {
+    const container = document.getElementById('taskInstructionsContent');
+    const isCEO = auth.isCEO();
+    let list = this.state.taskInstructions;
+
+    // 自分宛て or 自分が出した指示
+    if (!isCEO) {
+      list = list.filter(t => t.assigned_to === auth.currentUser.id);
+    }
+
+    if (list.length === 0) {
+      container.innerHTML = this.emptyState('📋', 'タスク指示なし',
+        isCEO ? '右上の「+ 新規指示」から作成' : '指示が来ると表示されます');
+      return;
+    }
+
+    // フィルタ: 未確認 / 確認済 / 完了
+    const pending = list.filter(t => t.status === 'pending');
+    const acknowledged = list.filter(t => t.status === 'acknowledged');
+    const completed = list.filter(t => t.status === 'completed');
+
+    let html = '';
+
+    if (pending.length > 0) {
+      html += '<h3 class="mb-2" style="font-size:15px;">⚠️ 未確認の指示</h3>';
+      pending.forEach(t => { html += this.renderTaskInstructionCard(t); });
+    }
+    if (acknowledged.length > 0) {
+      html += '<h3 class="mt-3 mb-2" style="font-size:15px;">✅ 確認済み・進行中</h3>';
+      acknowledged.forEach(t => { html += this.renderTaskInstructionCard(t); });
+    }
+    if (completed.length > 0) {
+      html += '<h3 class="mt-3 mb-2" style="font-size:15px;">🏁 完了</h3>';
+      completed.slice(0, 10).forEach(t => { html += this.renderTaskInstructionCard(t); });
+    }
+
+    container.innerHTML = html;
+  },
+
+  renderTaskInstructionCard(t) {
+    const assignee = this.state.staff.find(s => s.id === t.assigned_to);
+    const creator = this.state.staff.find(s => s.id === t.created_by);
+    const isMyTask = t.assigned_to === auth.currentUser.id;
+    const isCEO = auth.isCEO();
+    const statusLabel = { pending: '未確認', acknowledged: '進行中', completed: '完了' }[t.status];
+    const statusClass = { pending: 'badge-danger', acknowledged: 'badge-info', completed: 'badge-success' }[t.status];
+
+    return `<div class="card" style="${t.status === 'pending' && isMyTask ? 'border-left:4px solid var(--danger);' : ''}">
+      <div class="card-header">
+        <div class="card-title">${t.title}</div>
+        <span class="badge ${statusClass}">${statusLabel}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:auto auto;gap:6px 16px;font-size:12px;margin-bottom:12px;">
+        <div class="text-muted">担当</div><div>${assignee?.name || '-'}</div>
+        <div class="text-muted">指示者</div><div>${creator?.name || '-'}</div>
+        <div class="text-muted">期限</div><div>${t.deadline || '-'}</div>
+        ${t.acknowledged_at ? `<div class="text-muted">確認日時</div><div>${this.formatDate(t.acknowledged_at)}</div>` : ''}
+      </div>
+      ${t.description ? `<div class="mb-2" style="font-size:13px;color:var(--gray-700);">${t.description}</div>` : ''}
+      ${t.completion_criteria ? `<div style="background:var(--gray-50);padding:10px;border-radius:6px;font-size:12px;margin-bottom:12px;"><strong>完了条件:</strong> ${t.completion_criteria}</div>` : ''}
+      <div class="flex gap-1">
+        ${isMyTask && t.status === 'pending' ? `<button class="btn btn-sm btn-success" onclick="App.acknowledgeTaskInstruction('${t.id}')">✅ 指示を確認した</button>` : ''}
+        ${isMyTask && t.status === 'acknowledged' ? `<button class="btn btn-sm btn-success" onclick="App.completeTaskInstruction('${t.id}')">🏁 完了報告</button>` : ''}
+        ${isCEO ? `<button class="btn btn-sm btn-danger" onclick="App.deleteTaskInstruction('${t.id}')">削除</button>` : ''}
+      </div>
+    </div>`;
+  },
+
+  openTaskInstructionModal() {
+    const staffOptions = this.state.staff
+      .filter(s => s.id !== auth.currentUser.id)
+      .map(s => `<option value="${s.id}">${s.name} (${this.roleLabel(s.role)})</option>`)
+      .join('');
+
+    this.showModal('新規タスク指示', `
+      <p class="text-muted mb-2" style="font-size:12px;">「誰向け」「いつまで」「何を」「どのような完了形」を明確に指示します。</p>
+      <div class="form-group">
+        <label class="form-label">指示タイトル *</label>
+        <input type="text" id="ti_title" class="form-input" placeholder="例: 月次売上レポートの作成">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">誰向け（担当者）*</label>
+          <select id="ti_assignee" class="form-select"><option value="">-- 選択 --</option>${staffOptions}</select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">いつまで（期限）*</label>
+          <input type="date" id="ti_deadline" class="form-input">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">何を（内容・詳細）</label>
+        <textarea id="ti_desc" class="form-textarea" placeholder="具体的な行動内容、背景、参考資料など" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">どのような完了形（完了条件）*</label>
+        <textarea id="ti_criteria" class="form-textarea" placeholder="例: PDF化したレポートをSlackで共有、KPI入力欄を全て埋める、など" rows="2"></textarea>
+      </div>
+    `, async () => {
+      const data = {
+        title: document.getElementById('ti_title').value.trim(),
+        assigned_to: document.getElementById('ti_assignee').value,
+        deadline: document.getElementById('ti_deadline').value || null,
+        description: document.getElementById('ti_desc').value.trim(),
+        completion_criteria: document.getElementById('ti_criteria').value.trim(),
+        created_by: auth.currentUser.id,
+        status: 'pending'
+      };
+      if (!data.title || !data.assigned_to || !data.deadline || !data.completion_criteria) {
+        this.toast('タイトル・担当・期限・完了条件は必須', 'error');
+        return false;
+      }
+      try {
+        await db.createTaskInstruction(data);
+        await db.createNotification({
+          recipient_id: data.assigned_to,
+          type: 'task_instruction',
+          title: 'タスク指示が届きました',
+          message: data.title
+        });
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.toast('指示を送りました');
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    });
+  },
+
+  async acknowledgeTaskInstruction(id) {
+    if (!confirm('この指示を理解しましたか？確認後はバッジが消えます。')) return;
+    try {
+      await db.updateTaskInstruction(id, {
+        status: 'acknowledged',
+        acknowledged_at: new Date().toISOString()
+      });
+      await this.loadAllData();
+      this.renderCurrentPage();
+      this.toast('確認しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  async completeTaskInstruction(id) {
+    if (!confirm('このタスクを完了として報告しますか？')) return;
+    try {
+      await db.updateTaskInstruction(id, {
+        status: 'completed',
+        completed_at: new Date().toISOString()
+      });
+      await this.loadAllData();
+      this.renderCurrentPage();
+      this.toast('完了報告しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  async deleteTaskInstruction(id) {
+    if (!confirm('この指示を削除しますか？')) return;
+    try {
+      await db.deleteTaskInstruction(id);
+      await this.loadAllData();
+      this.renderCurrentPage();
+      this.toast('削除しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  // ===== Routine Tasks =====
+  async renderRoutine() {
+    const container = document.getElementById('routineContent');
+    const isCEO = auth.isCEO();
+    let tasks = this.state.routineTasks;
+    if (!isCEO) {
+      tasks = tasks.filter(t => t.assigned_to === auth.currentUser.id);
+    }
+
+    let html = `
+      <div class="settings-tabs">
+        <button class="routine-tab active" data-cycle="daily">📅 日次</button>
+        <button class="routine-tab" data-cycle="weekly">📆 週次</button>
+        <button class="routine-tab" data-cycle="monthly">🗓 月次</button>
+      </div>
+      <div id="routineList"></div>
+    `;
+    container.innerHTML = html;
+
+    // タブ切り替え
+    document.querySelectorAll('.routine-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.routine-tab').forEach(t => t.classList.toggle('active', t === tab));
+        this.renderRoutineList(tab.dataset.cycle, tasks);
+      });
+    });
+    this.renderRoutineList('daily', tasks);
+  },
+
+  async renderRoutineList(cycle, tasks) {
+    const filtered = tasks.filter(t => t.cycle === cycle && t.is_active);
+    const container = document.getElementById('routineList');
+    if (filtered.length === 0) {
+      const label = { daily: '日次', weekly: '週次', monthly: '月次' }[cycle];
+      container.innerHTML = this.emptyState('🔄', `${label}ルーティンなし`,
+        auth.isCEO() ? '右上の「+ 新規ルーティン」から作成' : '');
+      return;
+    }
+
+    let html = '';
+    for (const t of filtered) {
+      const assignee = this.state.staff.find(s => s.id === t.assigned_to);
+      const logs = await db.getRoutineLogs(t.id).catch(() => []);
+      const cycleLabel = { daily: '毎日', weekly: '毎週', monthly: '毎月' }[t.cycle];
+
+      // 今期の実施判定
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const doneToday = logs.some(l => l.log_date === todayStr);
+
+      html += `<div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">${t.title}</div>
+            <div class="text-muted" style="font-size:11px;margin-top:2px;">${cycleLabel} ・ 担当 ${assignee?.name || '-'}</div>
+          </div>
+          <span class="badge ${doneToday ? 'badge-success' : 'badge-gray'}">${doneToday ? '本日実施済' : '未実施'}</span>
+        </div>
+        ${t.description ? `<div class="mb-2" style="font-size:12px;color:var(--gray-700);">${t.description}</div>` : ''}
+        <div class="flex gap-1 mb-2">
+          ${(t.assigned_to === auth.currentUser.id || auth.isCEO()) ? `<button class="btn btn-sm btn-primary" onclick="App.openRoutineLogModal('${t.id}')">+ ログ登録</button>` : ''}
+          ${auth.isCEO() ? `<button class="btn btn-sm btn-secondary" onclick="App.openRoutineTaskModal('${t.id}')">編集</button>` : ''}
+          ${auth.isCEO() ? `<button class="btn btn-sm btn-danger" onclick="App.deleteRoutineTask('${t.id}')">削除</button>` : ''}
+        </div>
+        ${logs.length > 0 ? `
+          <details>
+            <summary style="cursor:pointer;font-size:12px;color:var(--gray-600);">実施ログ (${logs.length}件)</summary>
+            <div style="margin-top:8px;max-height:200px;overflow-y:auto;">
+              ${logs.slice(0, 20).map(l => {
+                const s = this.state.staff.find(x => x.id === l.staff_id);
+                return `<div style="padding:6px 10px;background:var(--gray-50);border-radius:4px;margin-bottom:4px;font-size:11px;">
+                  <strong>${l.log_date}</strong> ${s?.name || '-'}
+                  ${l.content ? `<div style="margin-top:2px;color:var(--gray-700);">${l.content}</div>` : ''}
+                </div>`;
+              }).join('')}
+            </div>
+          </details>
+        ` : ''}
+      </div>`;
+    }
+    container.innerHTML = html;
+  },
+
+  openRoutineTaskModal(id = null) {
+    const t = id ? this.state.routineTasks.find(x => x.id === id) : null;
+    const staffOptions = this.state.staff
+      .map(s => `<option value="${s.id}" ${t?.assigned_to === s.id ? 'selected' : ''}>${s.name} (${this.roleLabel(s.role)})</option>`)
+      .join('');
+
+    this.showModal(t ? 'ルーティン編集' : '新規ルーティン指示', `
+      <div class="form-group">
+        <label class="form-label">ルーティン名 *</label>
+        <input type="text" id="rt_title" class="form-input" value="${t?.title || ''}" placeholder="例: 朝の店内チェック">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">サイクル *</label>
+          <select id="rt_cycle" class="form-select">
+            <option value="daily" ${t?.cycle === 'daily' ? 'selected' : ''}>📅 日次（毎日）</option>
+            <option value="weekly" ${t?.cycle === 'weekly' ? 'selected' : ''}>📆 週次（毎週）</option>
+            <option value="monthly" ${t?.cycle === 'monthly' ? 'selected' : ''}>🗓 月次（毎月）</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">担当者 *</label>
+          <select id="rt_assignee" class="form-select"><option value="">-- 選択 --</option>${staffOptions}</select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">内容・手順</label>
+        <textarea id="rt_desc" class="form-textarea" rows="4" placeholder="チェック項目、実施手順など">${t?.description || ''}</textarea>
+      </div>
+    `, async () => {
+      const data = {
+        title: document.getElementById('rt_title').value.trim(),
+        cycle: document.getElementById('rt_cycle').value,
+        assigned_to: document.getElementById('rt_assignee').value,
+        description: document.getElementById('rt_desc').value.trim(),
+        created_by: auth.currentUser.id
+      };
+      if (!data.title || !data.assigned_to) {
+        this.toast('タイトル・担当者は必須', 'error');
+        return false;
+      }
+      try {
+        if (id) await db.updateRoutineTask(id, data);
+        else await db.createRoutineTask(data);
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.toast(id ? '更新しました' : 'ルーティンを登録しました');
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    });
+  },
+
+  openRoutineLogModal(routineId) {
+    const r = this.state.routineTasks.find(x => x.id === routineId);
+    this.showModal(`ログ登録: ${r.title}`, `
+      <div class="form-group">
+        <label class="form-label">日付</label>
+        <input type="date" id="rl_date" class="form-input" value="${new Date().toISOString().slice(0,10)}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">実施内容・備考</label>
+        <textarea id="rl_content" class="form-textarea" rows="3" placeholder="気付いたこと、特記事項など"></textarea>
+      </div>
+    `, async () => {
+      const data = {
+        routine_task_id: routineId,
+        staff_id: auth.currentUser.id,
+        log_date: document.getElementById('rl_date').value,
+        content: document.getElementById('rl_content').value.trim()
+      };
+      try {
+        await db.createRoutineLog(data);
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.toast('ログを登録しました');
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    });
+  },
+
+  async deleteRoutineTask(id) {
+    const r = this.state.routineTasks.find(x => x.id === id);
+    if (!confirm(`「${r.title}」を削除しますか？\n関連ログも全て削除されます。`)) return;
+    try {
+      await db.deleteRoutineTask(id);
+      await this.loadAllData();
+      this.renderCurrentPage();
+      this.toast('削除しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
   },
 
   // ===== Dashboard =====

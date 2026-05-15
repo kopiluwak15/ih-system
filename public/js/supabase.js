@@ -161,6 +161,60 @@ class SupabaseAPI {
     return this.request('POST', '/daily_logs', data);
   }
 
+  // ===== Task Instructions =====
+  async getTaskInstructions(filter = {}) {
+    let query = '?order=created_at.desc';
+    if (filter.assigned_to) query += `&assigned_to=eq.${filter.assigned_to}`;
+    if (filter.status) query += `&status=eq.${filter.status}`;
+    return this.request('GET', `/task_instructions${query}`);
+  }
+
+  async createTaskInstruction(data) {
+    return this.request('POST', '/task_instructions', data);
+  }
+
+  async updateTaskInstruction(id, data) {
+    return this.request('PATCH', `/task_instructions?id=eq.${id}`, data);
+  }
+
+  async deleteTaskInstruction(id) {
+    return this.request('DELETE', `/task_instructions?id=eq.${id}`);
+  }
+
+  // ===== Routine Tasks =====
+  async getRoutineTasks(filter = {}) {
+    let query = '?order=created_at.desc';
+    if (filter.cycle) query += `&cycle=eq.${filter.cycle}`;
+    if (filter.assigned_to) query += `&assigned_to=eq.${filter.assigned_to}`;
+    if (filter.is_active !== undefined) query += `&is_active=eq.${filter.is_active}`;
+    return this.request('GET', `/routine_tasks${query}`);
+  }
+
+  async createRoutineTask(data) {
+    return this.request('POST', '/routine_tasks', data);
+  }
+
+  async updateRoutineTask(id, data) {
+    return this.request('PATCH', `/routine_tasks?id=eq.${id}`, data);
+  }
+
+  async deleteRoutineTask(id) {
+    return this.request('DELETE', `/routine_tasks?id=eq.${id}`);
+  }
+
+  // ===== Routine Logs =====
+  async getRoutineLogs(routineTaskId) {
+    return this.request('GET', `/routine_logs?routine_task_id=eq.${routineTaskId}&order=log_date.desc,created_at.desc`);
+  }
+
+  async createRoutineLog(data) {
+    return this.request('POST', '/routine_logs', data);
+  }
+
+  async deleteRoutineLog(id) {
+    return this.request('DELETE', `/routine_logs?id=eq.${id}`);
+  }
+
   // ===== Notifications =====
   async getNotifications(recipientId) {
     return this.request('GET', `/notifications?recipient_id=eq.${recipientId}&order=created_at.desc&limit=50`);

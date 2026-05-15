@@ -664,7 +664,8 @@ body {
   margin-bottom: 20px;
 }
 
-.settings-tab {
+.settings-tab,
+.routine-tab {
   padding: 12px 20px;
   background: none;
   border: none;
@@ -681,11 +682,13 @@ body {
   gap: 6px;
 }
 
-.settings-tab:hover {
+.settings-tab:hover,
+.routine-tab:hover {
   color: var(--gray-900);
 }
 
-.settings-tab.active {
+.settings-tab.active,
+.routine-tab.active {
   color: var(--primary);
   border-bottom-color: var(--primary);
 }
