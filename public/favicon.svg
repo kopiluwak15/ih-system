@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- 赤い点 -->
+  <circle cx="58" cy="20" r="11" fill="#dc2638"/>
+  <!-- 「i」の本体 -->
+  <path d="M 56 40 Q 44 55 47 73 Q 52 86 67 84"
+        stroke="#1e3a8a"
+        stroke-width="13"
+        fill="none"
+        stroke-linecap="round"/>
+  <!-- 下の灰色ライン -->
+  <line x1="15" y1="93" x2="85" y2="93" stroke="#94a3b8" stroke-width="3"/>
+</svg>
