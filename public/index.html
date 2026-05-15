@@ -46,12 +46,6 @@
       <div class="nav-item active" data-page="dashboard">
         <span class="icon">📊</span><span>ダッシュボード</span>
       </div>
-      <div class="nav-item" data-page="companies">
-        <span class="icon">🏢</span><span>会社管理</span>
-      </div>
-      <div class="nav-item" data-page="business-units">
-        <span class="icon">🏪</span><span>事業・店舗</span>
-      </div>
       <div class="nav-item" data-page="projects">
         <span class="icon">🎯</span><span>課題抽出</span>
       </div>
@@ -71,6 +65,10 @@
       <div class="nav-item" data-page="notifications">
         <span class="icon">🔔</span><span>通知</span>
         <span id="notificationBadge" class="badge hidden">0</span>
+      </div>
+      <div style="flex:1"></div>
+      <div class="nav-item" data-page="settings" data-ceo-only>
+        <span class="icon">⚙️</span><span>設定</span>
       </div>
     </nav>
     <div class="sidebar-footer">
@@ -99,28 +97,41 @@
       <div id="dashboardContent"></div>
     </section>
 
-    <!-- Companies -->
-    <section id="companies" class="page">
+    <!-- Settings (会社管理・事業店舗) -->
+    <section id="settings" class="page">
       <div class="page-header">
         <div>
-          <h2 class="page-title">🏢 会社管理</h2>
-          <p class="page-subtitle">ホールディングス・事業会社の登録</p>
+          <h2 class="page-title">⚙️ 設定</h2>
+          <p class="page-subtitle">会社・事業・店舗の基本設定</p>
         </div>
-        <button class="btn btn-primary" id="addCompanyBtn">+ 新規会社</button>
       </div>
-      <div id="companiesContent"></div>
-    </section>
 
-    <!-- Business Units -->
-    <section id="business-units" class="page">
-      <div class="page-header">
-        <div>
-          <h2 class="page-title">🏪 事業・店舗・プロダクト管理</h2>
-          <p class="page-subtitle">会社に紐づく事業ユニットの登録</p>
-        </div>
-        <button class="btn btn-primary" id="addBusinessUnitBtn">+ 新規事業</button>
+      <div class="settings-tabs">
+        <button class="settings-tab active" data-tab="companies">🏢 会社管理</button>
+        <button class="settings-tab" data-tab="business-units">🏪 事業・店舗・プロダクト</button>
       </div>
-      <div id="businessUnitsContent"></div>
+
+      <div class="settings-tab-content active" data-tab-content="companies">
+        <div class="flex-between mb-2">
+          <div>
+            <h3 style="font-size:15px;font-weight:600;">会社一覧</h3>
+            <p class="text-muted" style="font-size:12px;">ホールディングス・事業会社の登録</p>
+          </div>
+          <button class="btn btn-primary" id="addCompanyBtn">+ 新規会社</button>
+        </div>
+        <div id="companiesContent"></div>
+      </div>
+
+      <div class="settings-tab-content" data-tab-content="business-units">
+        <div class="flex-between mb-2">
+          <div>
+            <h3 style="font-size:15px;font-weight:600;">事業・店舗・プロダクト一覧</h3>
+            <p class="text-muted" style="font-size:12px;">会社に紐づく事業ユニットの登録</p>
+          </div>
+          <button class="btn btn-primary" id="addBusinessUnitBtn">+ 新規事業</button>
+        </div>
+        <div id="businessUnitsContent"></div>
+      </div>
     </section>
 
     <!-- Projects (課題抽出) -->

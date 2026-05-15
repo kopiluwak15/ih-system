@@ -656,6 +656,54 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* ===== Settings Tabs ===== */
+.settings-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.settings-tab {
+  padding: 12px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-500);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all 0.15s;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-tab:hover {
+  color: var(--gray-900);
+}
+
+.settings-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.settings-tab-content {
+  display: none;
+}
+
+.settings-tab-content.active {
+  display: block;
+}
+
+/* ===== Sidebar Nav Layout ===== */
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+}
+
 /* ===== Utility ===== */
 .text-muted { color: var(--gray-500); }
 .text-success { color: var(--success); }

@@ -17,6 +17,7 @@ const App = {
   async init() {
     this.setupNavigation();
     this.setupButtons();
+    this.setupSettingsTabs();
     await this.loadAllData();
     this.renderCurrentPage();
     this.startNotificationPolling();
@@ -99,16 +100,34 @@ const App = {
   renderCurrentPage() {
     const renderers = {
       dashboard: () => this.renderDashboard(),
-      companies: () => this.renderCompanies(),
-      'business-units': () => this.renderBusinessUnits(),
       projects: () => this.renderProjects(),
       design: () => this.renderDesign(),
       approval: () => this.renderApproval(),
       logs: () => this.renderLogs(),
       staff: () => this.renderStaff(),
-      notifications: () => this.renderNotifications()
+      notifications: () => this.renderNotifications(),
+      settings: () => this.renderSettings()
     };
     renderers[this.state.currentPage]?.();
+  },
+
+  renderSettings() {
+    const activeTab = document.querySelector('.settings-tab.active');
+    const tabName = activeTab?.dataset.tab || 'companies';
+    if (tabName === 'companies') this.renderCompanies();
+    else if (tabName === 'business-units') this.renderBusinessUnits();
+  },
+
+  setupSettingsTabs() {
+    document.querySelectorAll('.settings-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabName = tab.dataset.tab;
+        document.querySelectorAll('.settings-tab').forEach(t => t.classList.toggle('active', t === tab));
+        document.querySelectorAll('.settings-tab-content').forEach(c => c.classList.toggle('active', c.dataset.tabContent === tabName));
+        if (tabName === 'companies') this.renderCompanies();
+        else if (tabName === 'business-units') this.renderBusinessUnits();
+      });
+    });
   },
 
   setupButtons() {
