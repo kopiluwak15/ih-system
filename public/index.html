@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IH-SYSTEM | 経営構造化管理</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- ===== Login Screen ===== -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <h1>🎯 IH-SYSTEM</h1>
+      <p>経営構造化管理システム</p>
+    </div>
+    <form id="loginForm">
+      <div class="form-group">
+        <label class="form-label">メールアドレス</label>
+        <input type="email" id="loginEmail" class="form-input" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">パスワード</label>
+        <input type="password" id="loginPassword" class="form-input" required>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px; justify-content: center;">ログイン</button>
+      <div id="loginError" style="margin-top: 12px; color: var(--danger); font-size: 12px; text-align: center;"></div>
+    </form>
+    <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); text-align: center; font-size: 11px; color: var(--gray-500);">
+      初期管理者: kuroda@ikkou-e.com / ceo123
+    </div>
+  </div>
+</div>
+
+<!-- ===== App ===== -->
+<div id="app" class="app" style="display: none;">
+
+  <!-- ===== Sidebar ===== -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h1>🎯 IH-SYSTEM</h1>
+      <p>経営構造化管理</p>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-page="dashboard">
+        <span class="icon">📊</span><span>ダッシュボード</span>
+      </div>
+      <div class="nav-item" data-page="companies">
+        <span class="icon">🏢</span><span>会社管理</span>
+      </div>
+      <div class="nav-item" data-page="business-units">
+        <span class="icon">🏪</span><span>事業・店舗</span>
+      </div>
+      <div class="nav-item" data-page="projects">
+        <span class="icon">🎯</span><span>課題抽出</span>
+      </div>
+      <div class="nav-item" data-page="design">
+        <span class="icon">📐</span><span>KPI/マイルストーン設計</span>
+      </div>
+      <div class="nav-item" data-page="approval" data-ceo-only>
+        <span class="icon">✅</span><span>承認待ち</span>
+        <span id="approvalBadge" class="badge hidden">0</span>
+      </div>
+      <div class="nav-item" data-page="logs">
+        <span class="icon">📝</span><span>日報</span>
+      </div>
+      <div class="nav-item" data-page="staff" data-ceo-only>
+        <span class="icon">👥</span><span>スタッフ管理</span>
+      </div>
+      <div class="nav-item" data-page="notifications">
+        <span class="icon">🔔</span><span>通知</span>
+        <span id="notificationBadge" class="badge hidden">0</span>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div class="user-avatar" id="userAvatar">?</div>
+        <div>
+          <div class="user-name" id="userName">-</div>
+          <div class="user-role" id="userRole">-</div>
+        </div>
+      </div>
+      <button class="logout-btn" id="logoutBtn">ログアウト</button>
+    </div>
+  </aside>
+
+  <!-- ===== Main Content ===== -->
+  <main class="main">
+
+    <!-- Dashboard -->
+    <section id="dashboard" class="page active">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">📊 ダッシュボード</h2>
+          <p class="page-subtitle">経営全体の課題進捗を一覧</p>
+        </div>
+      </div>
+      <div id="dashboardContent"></div>
+    </section>
+
+    <!-- Companies -->
+    <section id="companies" class="page">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">🏢 会社管理</h2>
+          <p class="page-subtitle">ホールディングス・事業会社の登録</p>
+        </div>
+        <button class="btn btn-primary" id="addCompanyBtn">+ 新規会社</button>
+      </div>
+      <div id="companiesContent"></div>
+    </section>
+
+    <!-- Business Units -->
+    <section id="business-units" class="page">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">🏪 事業・店舗・プロダクト管理</h2>
+          <p class="page-subtitle">会社に紐づく事業ユニットの登録</p>
+        </div>
+        <button class="btn btn-primary" id="addBusinessUnitBtn">+ 新規事業</button>
+      </div>
+      <div id="businessUnitsContent"></div>
+    </section>
+
+    <!-- Projects (課題抽出) -->
+    <section id="projects" class="page">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">🎯 課題抽出</h2>
+          <p class="page-subtitle">経営課題をプロジェクト化して担当者に共有</p>
+        </div>
+        <button class="btn btn-primary" id="addProjectBtn">+ 新規課題</button>
+      </div>
+      <div id="projectsContent"></div>
+    </section>
+
+    <!-- Design (KPI/Milestone) -->
+    <section id="design" class="page">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">📐 KPI/マイルストーン設計</h2>
+          <p class="page-subtitle">担当者が解決策を設計してCEOへ提出</p>
+        </div>
+      </div>
+      <div id="designContent"></div>
+    </section>
+
+    <!-- Approval -->
+    <section id="approval" class="page">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">✅ 承認待ち</h2>
+          <p class="page-subtitle">担当者が設計したKPI/マイルストーンを承認</p>
+        </div>
+      </div>
+      <div id="approvalContent"></div>
+    </section>
+
+    <!-- Daily Logs -->
+    <section id="logs" class="page">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">📝 日報</h2>
+          <p class="page-subtitle">プロジェクトに対する行動を記録</p>
+        </div>
+        <button class="btn btn-primary" id="addLogBtn">+ 新規日報</button>
+      </div>
+      <div id="logsContent"></div>
+    </section>
+
+    <!-- Staff -->
+    <section id="staff" class="page">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">👥 スタッフ管理</h2>
+          <p class="page-subtitle">アカウント発行・権限管理</p>
+        </div>
+        <button class="btn btn-primary" id="addStaffBtn">+ 新規スタッフ</button>
+      </div>
+      <div id="staffContent"></div>
+    </section>
+
+    <!-- Notifications -->
+    <section id="notifications" class="page">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">🔔 通知</h2>
+          <p class="page-subtitle">プロジェクトと承認の通知履歴</p>
+        </div>
+      </div>
+      <div id="notificationsContent"></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ===== Modal Container ===== -->
+<div id="modalContainer"></div>
+
+<!-- ===== Toast Container ===== -->
+<div id="toastContainer"></div>
+
+<!-- ===== Scripts ===== -->
+<script src="js/supabase.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

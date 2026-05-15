@@ -1,0 +1,1323 @@
+/**
+ * IH-SYSTEM Main Application
+ * 経営構造化管理システム
+ */
+
+const App = {
+  state: {
+    companies: [],
+    businessUnits: [],
+    projects: [],
+    staff: [],
+    notifications: [],
+    currentPage: 'dashboard'
+  },
+
+  // ===== Initialization =====
+  async init() {
+    this.setupNavigation();
+    this.setupButtons();
+    await this.loadAllData();
+    this.renderCurrentPage();
+    this.startNotificationPolling();
+  },
+
+  async loadAllData() {
+    try {
+      const [companies, businessUnits, projects, staff] = await Promise.all([
+        db.getCompanies(),
+        db.getBusinessUnits(),
+        db.getProjects(),
+        db.getAllStaff()
+      ]);
+      this.state.companies = companies;
+      this.state.businessUnits = businessUnits;
+      this.state.projects = projects;
+      this.state.staff = staff;
+
+      if (auth.currentUser?.id) {
+        this.state.notifications = await db.getNotifications(auth.currentUser.id);
+        this.updateNotificationBadge();
+        this.updateApprovalBadge();
+      }
+    } catch (err) {
+      console.error('Load error:', err);
+      this.toast('データ読み込みエラー: ' + err.message, 'error');
+    }
+  },
+
+  startNotificationPolling() {
+    setInterval(async () => {
+      if (!auth.currentUser?.id) return;
+      try {
+        this.state.notifications = await db.getNotifications(auth.currentUser.id);
+        this.updateNotificationBadge();
+      } catch (e) { /* silent */ }
+    }, 30000);
+  },
+
+  updateNotificationBadge() {
+    const unread = this.state.notifications.filter(n => !n.is_read).length;
+    const badge = document.getElementById('notificationBadge');
+    if (unread > 0) {
+      badge.textContent = unread;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  },
+
+  updateApprovalBadge() {
+    if (!auth.isCEO()) return;
+    const count = this.state.projects.filter(p => p.status === 'pending_approval').length;
+    const badge = document.getElementById('approvalBadge');
+    if (count > 0) {
+      badge.textContent = count;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  },
+
+  // ===== Navigation =====
+  setupNavigation() {
+    document.querySelectorAll('.nav-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const page = item.dataset.page;
+        this.navigate(page);
+      });
+    });
+  },
+
+  navigate(page) {
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.toggle('active', i.dataset.page === page));
+    document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === page));
+    this.state.currentPage = page;
+    this.renderCurrentPage();
+  },
+
+  renderCurrentPage() {
+    const renderers = {
+      dashboard: () => this.renderDashboard(),
+      companies: () => this.renderCompanies(),
+      'business-units': () => this.renderBusinessUnits(),
+      projects: () => this.renderProjects(),
+      design: () => this.renderDesign(),
+      approval: () => this.renderApproval(),
+      logs: () => this.renderLogs(),
+      staff: () => this.renderStaff(),
+      notifications: () => this.renderNotifications()
+    };
+    renderers[this.state.currentPage]?.();
+  },
+
+  setupButtons() {
+    document.getElementById('addCompanyBtn')?.addEventListener('click', () => this.openCompanyModal());
+    document.getElementById('addBusinessUnitBtn')?.addEventListener('click', () => this.openBusinessUnitModal());
+    document.getElementById('addProjectBtn')?.addEventListener('click', () => this.openProjectModal());
+    document.getElementById('addLogBtn')?.addEventListener('click', () => this.openLogModal());
+    document.getElementById('addStaffBtn')?.addEventListener('click', () => this.openStaffModal());
+  },
+
+  // ===== Dashboard =====
+  renderDashboard() {
+    const container = document.getElementById('dashboardContent');
+    const projects = this.state.projects;
+    const active = projects.filter(p => p.status === 'active');
+    const pending = projects.filter(p => p.status === 'pending_design' || p.status === 'pending_approval');
+    const completed = projects.filter(p => p.status === 'completed');
+    const avgProgress = active.length > 0
+      ? Math.round(active.reduce((s, p) => s + (p.progress_percent || 0), 0) / active.length)
+      : 0;
+
+    let html = `
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">📊 進行中プロジェクト</div>
+          <div class="stat-value">${active.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">⏳ 設計/承認待ち</div>
+          <div class="stat-value">${pending.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">✅ 完了</div>
+          <div class="stat-value">${completed.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">📈 平均進捗</div>
+          <div class="stat-value">${avgProgress}%</div>
+        </div>
+      </div>
+    `;
+
+    // 会社別 → 事業別 → プロジェクト ツリー
+    html += '<div class="hierarchy-tree">';
+    if (this.state.companies.length === 0) {
+      html += this.emptyState('🏢', '会社が未登録', 'まず会社管理から登録してください');
+    } else {
+      this.state.companies.forEach(company => {
+        const units = this.state.businessUnits.filter(u => u.company_id === company.id);
+        html += `<div class="company-block">
+          <div class="company-name">
+            <span>${company.name}</span>
+            <span class="company-code">${company.code}</span>
+          </div>`;
+
+        if (units.length === 0) {
+          html += '<div class="text-muted" style="padding-left:16px;font-size:12px;">事業未登録</div>';
+        } else {
+          html += '<div class="business-units">';
+          units.forEach(unit => {
+            const unitProjects = this.state.projects.filter(p => p.business_unit_id === unit.id);
+            const activeCount = unitProjects.filter(p => p.status === 'active').length;
+            const stalledCount = unitProjects.filter(p => p.status === 'paused').length;
+            html += `<div class="business-unit">
+              <div class="business-unit-name">${unit.name}</div>
+              <div class="business-unit-meta">
+                ${this.unitTypeLabel(unit.type)} ・ プロジェクト ${unitProjects.length}件
+              </div>
+              ${unitProjects.length > 0 ? `
+                <div style="margin-top:8px;font-size:11px;">
+                  <span class="badge badge-success">進行${activeCount}</span>
+                  ${stalledCount > 0 ? `<span class="badge badge-danger">停滞${stalledCount}</span>` : ''}
+                </div>
+              ` : ''}
+            </div>`;
+          });
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+    }
+    html += '</div>';
+
+    // 進行中プロジェクト一覧
+    html += '<h3 class="mt-3 mb-2" style="font-size:16px;">🎯 進行中のプロジェクト</h3>';
+    if (active.length === 0) {
+      html += this.emptyState('🎯', '進行中プロジェクトなし', '「課題抽出」から新しい課題を作成してください');
+    } else {
+      active.forEach(p => {
+        const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
+        const company = unit ? this.state.companies.find(c => c.id === unit.company_id) : null;
+        const assignee = this.state.staff.find(s => s.id === p.assigned_to);
+        html += `<div class="project-card" onclick="App.openProjectDetail('${p.id}')">
+          <div class="project-card-header">
+            <div>
+              <div class="project-card-title">${p.title}</div>
+              <div class="project-card-meta">
+                ${company ? company.code : '?'} / ${unit ? unit.name : '?'}
+                ${p.deadline ? ` ・ 締切 ${p.deadline}` : ''}
+                ${assignee ? ` ・ 担当 ${assignee.name}` : ''}
+              </div>
+            </div>
+            <span class="badge ${p.solution_type === 'kpi' ? 'badge-info' : 'badge-warning'}">
+              ${p.solution_type === 'kpi' ? 'KPI' : 'マイルストーン'}
+            </span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${p.progress_percent || 0}%"></div></div>
+          <div class="text-muted" style="font-size:11px;margin-top:4px;">${p.progress_percent || 0}% 達成</div>
+        </div>`;
+      });
+    }
+
+    container.innerHTML = html;
+  },
+
+  // ===== Companies =====
+  renderCompanies() {
+    const container = document.getElementById('companiesContent');
+    if (this.state.companies.length === 0) {
+      container.innerHTML = this.emptyState('🏢', '会社が未登録', '右上の「+ 新規会社」から登録');
+      return;
+    }
+
+    let html = '<div class="card"><table class="table"><thead><tr><th>コード</th><th>会社名</th><th>説明</th><th>事業数</th><th></th></tr></thead><tbody>';
+    this.state.companies.forEach(c => {
+      const unitCount = this.state.businessUnits.filter(u => u.company_id === c.id).length;
+      html += `<tr>
+        <td><span class="badge badge-info">${c.code}</span></td>
+        <td><strong>${c.name}</strong></td>
+        <td class="text-muted">${c.description || ''}</td>
+        <td>${unitCount}件</td>
+        <td>
+          ${auth.isCEO() ? `
+            <button class="btn btn-sm btn-secondary" onclick="App.openCompanyModal('${c.id}')">編集</button>
+            <button class="btn btn-sm btn-danger" onclick="App.deleteCompany('${c.id}')">削除</button>
+          ` : ''}
+        </td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+  },
+
+  openCompanyModal(id = null) {
+    const c = id ? this.state.companies.find(x => x.id === id) : null;
+    this.showModal(c ? '会社を編集' : '新規会社を登録', `
+      <div class="form-group">
+        <label class="form-label">会社コード *</label>
+        <input type="text" id="cName_code" class="form-input" value="${c?.code || ''}" placeholder="例: IH">
+      </div>
+      <div class="form-group">
+        <label class="form-label">会社名 *</label>
+        <input type="text" id="cName_name" class="form-input" value="${c?.name || ''}" placeholder="例: 一鴻ホールディングス">
+      </div>
+      <div class="form-group">
+        <label class="form-label">説明</label>
+        <textarea id="cName_desc" class="form-textarea">${c?.description || ''}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">表示順</label>
+        <input type="number" id="cName_order" class="form-input" value="${c?.display_order || 0}">
+      </div>
+    `, async () => {
+      const data = {
+        code: document.getElementById('cName_code').value.trim(),
+        name: document.getElementById('cName_name').value.trim(),
+        description: document.getElementById('cName_desc').value.trim(),
+        display_order: parseInt(document.getElementById('cName_order').value) || 0
+      };
+      if (!data.code || !data.name) { this.toast('コードと会社名は必須', 'error'); return false; }
+      try {
+        if (id) await db.updateCompany(id, data);
+        else await db.createCompany(data);
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.toast(id ? '会社を更新しました' : '会社を登録しました');
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    });
+  },
+
+  async deleteCompany(id) {
+    const c = this.state.companies.find(x => x.id === id);
+    if (!confirm(`「${c.name}」を削除しますか？\n配下の事業も全て削除されます。`)) return;
+    try {
+      await db.deleteCompany(id);
+      await this.loadAllData();
+      this.renderCurrentPage();
+      this.toast('会社を削除しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  // ===== Business Units =====
+  renderBusinessUnits() {
+    const container = document.getElementById('businessUnitsContent');
+    if (this.state.companies.length === 0) {
+      container.innerHTML = this.emptyState('🏪', '会社が未登録', 'まず会社を登録してください');
+      return;
+    }
+    if (this.state.businessUnits.length === 0) {
+      container.innerHTML = this.emptyState('🏪', '事業が未登録', '右上の「+ 新規事業」から登録');
+      return;
+    }
+
+    let html = '';
+    this.state.companies.forEach(company => {
+      const units = this.state.businessUnits.filter(u => u.company_id === company.id);
+      if (units.length === 0) return;
+      html += `<div class="card">
+        <div class="card-header"><div class="card-title">${company.name} <span class="company-code">${company.code}</span></div></div>
+        <table class="table"><thead><tr><th>コード</th><th>名称</th><th>種類</th><th>説明</th><th></th></tr></thead><tbody>`;
+      units.forEach(u => {
+        html += `<tr>
+          <td><span class="badge badge-gray">${u.code}</span></td>
+          <td><strong>${u.name}</strong></td>
+          <td>${this.unitTypeLabel(u.type)}</td>
+          <td class="text-muted">${u.description || ''}</td>
+          <td>
+            ${auth.isCEO() ? `
+              <button class="btn btn-sm btn-secondary" onclick="App.openBusinessUnitModal('${u.id}')">編集</button>
+              <button class="btn btn-sm btn-danger" onclick="App.deleteBusinessUnit('${u.id}')">削除</button>
+            ` : ''}
+          </td>
+        </tr>`;
+      });
+      html += '</tbody></table></div>';
+    });
+    container.innerHTML = html;
+  },
+
+  openBusinessUnitModal(id = null) {
+    if (this.state.companies.length === 0) {
+      this.toast('先に会社を登録してください', 'error');
+      return;
+    }
+    const u = id ? this.state.businessUnits.find(x => x.id === id) : null;
+    const companyOptions = this.state.companies.map(c =>
+      `<option value="${c.id}" ${u?.company_id === c.id ? 'selected' : ''}>${c.code} - ${c.name}</option>`
+    ).join('');
+    this.showModal(u ? '事業を編集' : '新規事業を登録', `
+      <div class="form-group">
+        <label class="form-label">所属会社 *</label>
+        <select id="bu_company" class="form-select">${companyOptions}</select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">コード *</label>
+          <input type="text" id="bu_code" class="form-input" value="${u?.code || ''}" placeholder="例: CFM">
+        </div>
+        <div class="form-group">
+          <label class="form-label">種類 *</label>
+          <select id="bu_type" class="form-select">
+            <option value="store" ${u?.type === 'store' ? 'selected' : ''}>店舗</option>
+            <option value="product" ${u?.type === 'product' ? 'selected' : ''}>プロダクト</option>
+            <option value="service" ${u?.type === 'service' ? 'selected' : ''}>サービス事業</option>
+            <option value="department" ${u?.type === 'department' ? 'selected' : ''}>部署/部門</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">名称 *</label>
+        <input type="text" id="bu_name" class="form-input" value="${u?.name || ''}" placeholder="例: COOKIE for MEN">
+      </div>
+      <div class="form-group">
+        <label class="form-label">説明</label>
+        <textarea id="bu_desc" class="form-textarea">${u?.description || ''}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">表示順</label>
+        <input type="number" id="bu_order" class="form-input" value="${u?.display_order || 0}">
+      </div>
+    `, async () => {
+      const data = {
+        company_id: document.getElementById('bu_company').value,
+        code: document.getElementById('bu_code').value.trim(),
+        name: document.getElementById('bu_name').value.trim(),
+        type: document.getElementById('bu_type').value,
+        description: document.getElementById('bu_desc').value.trim(),
+        display_order: parseInt(document.getElementById('bu_order').value) || 0
+      };
+      if (!data.code || !data.name) { this.toast('コードと名称は必須', 'error'); return false; }
+      try {
+        if (id) await db.updateBusinessUnit(id, data);
+        else await db.createBusinessUnit(data);
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.toast(id ? '事業を更新しました' : '事業を登録しました');
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    });
+  },
+
+  async deleteBusinessUnit(id) {
+    const u = this.state.businessUnits.find(x => x.id === id);
+    if (!confirm(`「${u.name}」を削除しますか？`)) return;
+    try {
+      await db.deleteBusinessUnit(id);
+      await this.loadAllData();
+      this.renderCurrentPage();
+      this.toast('事業を削除しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  // ===== Projects (課題抽出) =====
+  renderProjects() {
+    const container = document.getElementById('projectsContent');
+    if (this.state.projects.length === 0) {
+      container.innerHTML = this.emptyState('🎯', '課題未登録', '右上の「+ 新規課題」から登録');
+      return;
+    }
+    let html = '<div class="card"><table class="table"><thead><tr><th>状態</th><th>課題</th><th>事業</th><th>解決方法</th><th>担当</th><th>締切</th><th></th></tr></thead><tbody>';
+    this.state.projects.forEach(p => {
+      const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
+      const company = unit ? this.state.companies.find(c => c.id === unit.company_id) : null;
+      const assignee = this.state.staff.find(s => s.id === p.assigned_to);
+      html += `<tr>
+        <td><span class="badge status-${p.status}">${this.statusLabel(p.status)}</span></td>
+        <td><strong onclick="App.openProjectDetail('${p.id}')" style="cursor:pointer;color:var(--primary);">${p.title}</strong></td>
+        <td><span class="badge badge-gray">${company?.code || '?'}</span> ${unit?.name || '?'}</td>
+        <td><span class="badge ${p.solution_type === 'kpi' ? 'badge-info' : 'badge-warning'}">${p.solution_type === 'kpi' ? 'KPI' : 'マイルストーン'}</span></td>
+        <td>${assignee?.name || '-'}</td>
+        <td class="text-muted">${p.deadline || '-'}</td>
+        <td>
+          <button class="btn btn-sm btn-secondary" onclick="App.openProjectDetail('${p.id}')">詳細</button>
+          ${auth.isCEO() ? `<button class="btn btn-sm btn-danger" onclick="App.deleteProject('${p.id}')">削除</button>` : ''}
+        </td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+  },
+
+  openProjectModal() {
+    if (this.state.businessUnits.length === 0) {
+      this.toast('先に事業を登録してください', 'error');
+      return;
+    }
+    const unitOptions = this.state.companies.map(c => {
+      const units = this.state.businessUnits.filter(u => u.company_id === c.id);
+      if (units.length === 0) return '';
+      return `<optgroup label="${c.code} - ${c.name}">` +
+        units.map(u => `<option value="${u.id}">${u.code} - ${u.name}</option>`).join('') +
+        '</optgroup>';
+    }).join('');
+    const staffOptions = this.state.staff
+      .filter(s => s.role !== 'ceo' || s.id === auth.currentUser.id)
+      .map(s => `<option value="${s.id}">${s.name} (${this.roleLabel(s.role)})</option>`)
+      .join('');
+
+    this.showModal('新規課題を登録', `
+      <div class="form-group">
+        <label class="form-label">事業・店舗・プロダクト *</label>
+        <select id="p_bu" class="form-select"><option value="">-- 選択 --</option>${unitOptions}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">課題タイトル *</label>
+        <input type="text" id="p_title" class="form-input" placeholder="例: A店の新規集客数を増やす">
+      </div>
+      <div class="form-group">
+        <label class="form-label">背景・詳細</label>
+        <textarea id="p_desc" class="form-textarea" placeholder="なぜこれが課題か、どう変えたいか"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">解決方法 *</label>
+          <select id="p_type" class="form-select">
+            <option value="kpi">KPI（数値で管理）</option>
+            <option value="milestone">マイルストーン（チェックポイント）</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">締切</label>
+          <input type="date" id="p_deadline" class="form-input">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">担当者 *</label>
+        <select id="p_assignee" class="form-select"><option value="">-- 選択 --</option>${staffOptions}</select>
+      </div>
+    `, async () => {
+      const data = {
+        business_unit_id: document.getElementById('p_bu').value,
+        title: document.getElementById('p_title').value.trim(),
+        description: document.getElementById('p_desc').value.trim(),
+        solution_type: document.getElementById('p_type').value,
+        deadline: document.getElementById('p_deadline').value || null,
+        assigned_to: document.getElementById('p_assignee').value || null,
+        created_by: auth.currentUser.id,
+        status: 'pending_design'
+      };
+      if (!data.business_unit_id || !data.title || !data.assigned_to) {
+        this.toast('事業、タイトル、担当者は必須', 'error');
+        return false;
+      }
+      try {
+        const result = await db.createProject(data);
+        const projectId = Array.isArray(result) ? result[0].id : result.id;
+        // 担当者に通知
+        await db.createNotification({
+          recipient_id: data.assigned_to,
+          type: 'new_project',
+          title: '新しい課題が作成されました',
+          message: data.title,
+          project_id: projectId
+        });
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.toast('課題を登録し、担当者に通知しました');
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    });
+  },
+
+  async deleteProject(id) {
+    const p = this.state.projects.find(x => x.id === id);
+    if (!confirm(`「${p.title}」を削除しますか？\nKPI/マイルストーン/日報も全て削除されます。`)) return;
+    try {
+      await db.deleteProject(id);
+      await this.loadAllData();
+      this.renderCurrentPage();
+      this.toast('課題を削除しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  // ===== Project Detail Modal =====
+  async openProjectDetail(id) {
+    const p = await db.getProject(id);
+    const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
+    const company = unit ? this.state.companies.find(c => c.id === unit.company_id) : null;
+    const assignee = this.state.staff.find(s => s.id === p.assigned_to);
+    const creator = this.state.staff.find(s => s.id === p.created_by);
+
+    let detailContent = '';
+    if (p.solution_type === 'kpi') {
+      const kpis = await db.getKPIs(id);
+      if (kpis.length === 0) {
+        detailContent = '<p class="text-muted">KPI 未設定</p>';
+      } else {
+        detailContent = kpis.map(k => {
+          const range = k.target_value - k.start_value;
+          const progress = range !== 0 ? Math.round(((k.current_value - k.start_value) / range) * 100) : 0;
+          return `<div style="padding:12px;background:var(--gray-50);border-radius:8px;margin-bottom:8px;">
+            <div style="font-weight:600;">${k.name}</div>
+            <div style="font-size:12px;color:var(--gray-500);margin-top:4px;">
+              ${k.start_value} → ${k.current_value} / 目標 ${k.target_value} ${k.unit || ''}
+              ${k.target_date ? ` (期限 ${k.target_date})` : ''}
+            </div>
+            <div class="progress-bar" style="margin-top:8px;"><div class="progress-fill" style="width:${Math.max(0, Math.min(100, progress))}%"></div></div>
+            <div style="font-size:11px;color:var(--gray-500);margin-top:4px;">${progress}%</div>
+          </div>`;
+        }).join('');
+      }
+    } else {
+      const milestones = await db.getMilestones(id);
+      if (milestones.length === 0) {
+        detailContent = '<p class="text-muted">マイルストーン未設定</p>';
+      } else {
+        detailContent = milestones.map(m => `<div style="padding:12px;background:var(--gray-50);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-weight:600;">${m.status === 'completed' ? '✅ ' : m.status === 'in_progress' ? '🔄 ' : '⏳ '}${m.title}</div>
+            ${m.description ? `<div style="font-size:12px;color:var(--gray-500);">${m.description}</div>` : ''}
+            ${m.due_date ? `<div style="font-size:11px;color:var(--gray-500);">期限 ${m.due_date}</div>` : ''}
+          </div>
+          <span class="badge ${m.status === 'completed' ? 'badge-success' : m.status === 'in_progress' ? 'badge-info' : 'badge-gray'}">
+            ${m.status === 'completed' ? '完了' : m.status === 'in_progress' ? '進行中' : '未着手'}
+          </span>
+        </div>`).join('');
+      }
+    }
+
+    // 日報履歴
+    const logs = await db.getDailyLogs({ project_id: id });
+    const logsHtml = logs.length === 0
+      ? '<p class="text-muted">日報なし</p>'
+      : logs.slice(0, 10).map(l => {
+          const s = this.state.staff.find(x => x.id === l.staff_id);
+          return `<div style="padding:8px 12px;border-left:3px solid var(--primary);background:var(--gray-50);margin-bottom:6px;border-radius:0 6px 6px 0;">
+            <div style="font-size:11px;color:var(--gray-500);">${l.log_date} ・ ${s?.name || '-'}</div>
+            <div style="margin-top:4px;font-size:13px;">${l.action_content}</div>
+          </div>`;
+        }).join('');
+
+    this.showModal(p.title, `
+      <div style="display:grid;grid-template-columns:auto auto;gap:8px 16px;font-size:13px;margin-bottom:16px;">
+        <div class="text-muted">状態</div><div><span class="badge status-${p.status}">${this.statusLabel(p.status)}</span></div>
+        <div class="text-muted">事業</div><div>${company?.code || '?'} / ${unit?.name || '?'}</div>
+        <div class="text-muted">解決方法</div><div>${p.solution_type === 'kpi' ? 'KPI' : 'マイルストーン'}</div>
+        <div class="text-muted">担当</div><div>${assignee?.name || '-'}</div>
+        <div class="text-muted">作成者</div><div>${creator?.name || '-'}</div>
+        <div class="text-muted">締切</div><div>${p.deadline || '-'}</div>
+        <div class="text-muted">進捗</div><div>${p.progress_percent || 0}%</div>
+      </div>
+      ${p.description ? `<div class="card" style="background:var(--gray-50);"><div style="font-size:12px;color:var(--gray-500);margin-bottom:4px;">背景・詳細</div>${p.description}</div>` : ''}
+      <h4 style="margin:16px 0 8px 0;font-size:14px;">${p.solution_type === 'kpi' ? '📊 KPI' : '🎯 マイルストーン'}</h4>
+      ${detailContent}
+      <h4 style="margin:16px 0 8px 0;font-size:14px;">📝 最近の日報</h4>
+      ${logsHtml}
+    `, null, true);
+  },
+
+  // ===== Design (担当者がKPI/Milestoneを設計) =====
+  renderDesign() {
+    const container = document.getElementById('designContent');
+    const myProjects = this.state.projects.filter(p =>
+      p.assigned_to === auth.currentUser.id && p.status === 'pending_design'
+    );
+    if (myProjects.length === 0) {
+      container.innerHTML = this.emptyState('📐', '設計待ち課題なし', '自分が担当の未設計プロジェクトはありません');
+      return;
+    }
+
+    let html = '<p class="text-muted mb-2">あなたに割り当てられた課題です。KPI または マイルストーンを設計してCEOに提出してください。</p>';
+    myProjects.forEach(p => {
+      const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
+      const company = unit ? this.state.companies.find(c => c.id === unit.company_id) : null;
+      html += `<div class="card">
+        <div class="card-header">
+          <div class="card-title">${p.title}</div>
+          <span class="badge ${p.solution_type === 'kpi' ? 'badge-info' : 'badge-warning'}">${p.solution_type === 'kpi' ? 'KPI 設計' : 'マイルストーン 設計'}</span>
+        </div>
+        <div class="text-muted mb-2" style="font-size:12px;">
+          ${company?.code || '?'} / ${unit?.name || '?'} ・ 締切 ${p.deadline || '-'}
+        </div>
+        ${p.description ? `<div class="mb-2" style="font-size:13px;color:var(--gray-700);">${p.description}</div>` : ''}
+        <button class="btn btn-primary btn-sm" onclick="App.openDesignModal('${p.id}')">設計する</button>
+      </div>`;
+    });
+    container.innerHTML = html;
+  },
+
+  async openDesignModal(projectId) {
+    const p = await db.getProject(projectId);
+    let bodyHtml = '';
+
+    if (p.solution_type === 'kpi') {
+      bodyHtml = `
+        <p class="text-muted mb-2" style="font-size:12px;">この課題を解決するための数値目標（KPI）を1つ以上設定します。</p>
+        <div id="kpiList"></div>
+        <button class="btn btn-secondary btn-sm" type="button" onclick="App.addKPIRow()">+ KPI 追加</button>
+      `;
+    } else {
+      bodyHtml = `
+        <p class="text-muted mb-2" style="font-size:12px;">課題達成までのチェックポイント（マイルストーン）を設定します。</p>
+        <div id="msList"></div>
+        <button class="btn btn-secondary btn-sm" type="button" onclick="App.addMilestoneRow()">+ マイルストーン 追加</button>
+      `;
+    }
+
+    this.showModal(`設計: ${p.title}`, bodyHtml, async () => {
+      try {
+        if (p.solution_type === 'kpi') {
+          const rows = document.querySelectorAll('#kpiList .kpi-row');
+          if (rows.length === 0) { this.toast('KPI を1つ以上追加してください', 'error'); return false; }
+          for (const row of rows) {
+            const name = row.querySelector('.k-name').value.trim();
+            const target = parseFloat(row.querySelector('.k-target').value);
+            if (!name || isNaN(target)) continue;
+            await db.createKPI({
+              project_id: projectId,
+              name,
+              unit: row.querySelector('.k-unit').value.trim(),
+              start_value: parseFloat(row.querySelector('.k-start').value) || 0,
+              target_value: target,
+              current_value: parseFloat(row.querySelector('.k-start').value) || 0,
+              target_date: row.querySelector('.k-date').value || null
+            });
+          }
+        } else {
+          const rows = document.querySelectorAll('#msList .ms-row');
+          if (rows.length === 0) { this.toast('マイルストーンを1つ以上追加', 'error'); return false; }
+          let order = 0;
+          for (const row of rows) {
+            const title = row.querySelector('.m-title').value.trim();
+            if (!title) continue;
+            await db.createMilestone({
+              project_id: projectId,
+              title,
+              description: row.querySelector('.m-desc').value.trim(),
+              due_date: row.querySelector('.m-date').value || null,
+              display_order: order++
+            });
+          }
+        }
+
+        // ステータスを承認待ちに
+        await db.updateProject(projectId, { status: 'pending_approval' });
+        // CEO に通知
+        const ceos = this.state.staff.filter(s => s.role === 'ceo');
+        for (const ceo of ceos) {
+          await db.createNotification({
+            recipient_id: ceo.id,
+            type: 'design_submitted',
+            title: 'KPI/マイルストーンが提出されました',
+            message: p.title,
+            project_id: projectId
+          });
+        }
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.toast('設計を提出しました。CEO の承認を待ちます');
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    });
+
+    // 初期1行追加
+    setTimeout(() => {
+      if (p.solution_type === 'kpi') this.addKPIRow();
+      else this.addMilestoneRow();
+    }, 50);
+  },
+
+  addKPIRow() {
+    const list = document.getElementById('kpiList');
+    const idx = list.children.length;
+    const row = document.createElement('div');
+    row.className = 'kpi-row';
+    row.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:8px;position:relative;';
+    row.innerHTML = `
+      <button type="button" onclick="this.parentElement.remove()" style="position:absolute;top:8px;right:8px;background:none;border:none;color:var(--danger);cursor:pointer;">×</button>
+      <div class="form-group" style="margin-bottom:8px;">
+        <label class="form-label">KPI名 *</label>
+        <input type="text" class="form-input k-name" placeholder="例: 新規来店者数">
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="margin-bottom:8px;">
+          <label class="form-label">現在値</label>
+          <input type="number" class="form-input k-start" step="any" value="0">
+        </div>
+        <div class="form-group" style="margin-bottom:8px;">
+          <label class="form-label">目標値 *</label>
+          <input type="number" class="form-input k-target" step="any">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">単位</label>
+          <input type="text" class="form-input k-unit" placeholder="例: 人, %, 円">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">期限</label>
+          <input type="date" class="form-input k-date">
+        </div>
+      </div>
+    `;
+    list.appendChild(row);
+  },
+
+  addMilestoneRow() {
+    const list = document.getElementById('msList');
+    const row = document.createElement('div');
+    row.className = 'ms-row';
+    row.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:8px;position:relative;';
+    row.innerHTML = `
+      <button type="button" onclick="this.parentElement.remove()" style="position:absolute;top:8px;right:8px;background:none;border:none;color:var(--danger);cursor:pointer;">×</button>
+      <div class="form-group" style="margin-bottom:8px;">
+        <label class="form-label">マイルストーン *</label>
+        <input type="text" class="form-input m-title" placeholder="例: ヒアリング完了">
+      </div>
+      <div class="form-group" style="margin-bottom:8px;">
+        <label class="form-label">詳細</label>
+        <input type="text" class="form-input m-desc" placeholder="達成条件">
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">期限</label>
+        <input type="date" class="form-input m-date">
+      </div>
+    `;
+    list.appendChild(row);
+  },
+
+  // ===== Approval (CEO 承認) =====
+  renderApproval() {
+    const container = document.getElementById('approvalContent');
+    if (!auth.isCEO()) {
+      container.innerHTML = '<p class="text-muted">この画面は CEO のみ利用可能です</p>';
+      return;
+    }
+    const pending = this.state.projects.filter(p => p.status === 'pending_approval');
+    if (pending.length === 0) {
+      container.innerHTML = this.emptyState('✅', '承認待ち課題なし', '担当者からの提出を待っています');
+      return;
+    }
+
+    let html = '<p class="text-muted mb-2">担当者が提出した KPI/マイルストーンを確認して承認します。</p>';
+    pending.forEach(p => {
+      const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
+      const assignee = this.state.staff.find(s => s.id === p.assigned_to);
+      html += `<div class="card">
+        <div class="card-header">
+          <div class="card-title">${p.title}</div>
+          <span class="badge status-pending_approval">承認待ち</span>
+        </div>
+        <div class="text-muted mb-2" style="font-size:12px;">
+          ${unit?.name || '?'} ・ 担当 ${assignee?.name || '?'} ・ 締切 ${p.deadline || '-'}
+        </div>
+        <div class="flex gap-1">
+          <button class="btn btn-sm btn-secondary" onclick="App.openProjectDetail('${p.id}')">内容を確認</button>
+          <button class="btn btn-sm btn-success" onclick="App.approveProject('${p.id}')">✅ 承認してアクティブ化</button>
+          <button class="btn btn-sm btn-danger" onclick="App.rejectProject('${p.id}')">差し戻し</button>
+        </div>
+      </div>`;
+    });
+    container.innerHTML = html;
+  },
+
+  async approveProject(id) {
+    const p = this.state.projects.find(x => x.id === id);
+    if (!confirm(`「${p.title}」を承認してアクティブ化しますか？`)) return;
+    try {
+      await db.updateProject(id, {
+        status: 'active',
+        approved_by: auth.currentUser.id,
+        approved_at: new Date().toISOString()
+      });
+      await db.createNotification({
+        recipient_id: p.assigned_to,
+        type: 'project_approved',
+        title: '課題が承認されました',
+        message: p.title + ' - 実行を開始してください',
+        project_id: id
+      });
+      await this.loadAllData();
+      this.renderCurrentPage();
+      this.toast('承認しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  async rejectProject(id) {
+    const p = this.state.projects.find(x => x.id === id);
+    if (!confirm(`「${p.title}」を差し戻しますか？担当者が再設計します。`)) return;
+    try {
+      await db.updateProject(id, { status: 'pending_design' });
+      await db.createNotification({
+        recipient_id: p.assigned_to,
+        type: 'new_project',
+        title: '課題が差し戻されました',
+        message: p.title + ' - 再設計が必要です',
+        project_id: id
+      });
+      await this.loadAllData();
+      this.renderCurrentPage();
+      this.toast('差し戻しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  // ===== Daily Logs =====
+  async renderLogs() {
+    const container = document.getElementById('logsContent');
+    const logs = await db.getDailyLogs();
+    const activeProjects = this.state.projects.filter(p => p.status === 'active');
+
+    let html = '<h3 class="mb-2" style="font-size:15px;">プロジェクト別の最終更新</h3>';
+    if (activeProjects.length === 0) {
+      html += this.emptyState('📝', 'アクティブなプロジェクトなし', '承認されたプロジェクトに対して日報を記録できます');
+    } else {
+      html += '<div class="card"><table class="table"><thead><tr><th>プロジェクト</th><th>事業</th><th>最終アクション</th><th>日報数</th><th>進捗</th></tr></thead><tbody>';
+      activeProjects.forEach(p => {
+        const projectLogs = logs.filter(l => l.project_id === p.id);
+        const lastLog = projectLogs[0]; // 最新（log_date desc でソート済み）
+        const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
+        const isStalled = !lastLog || this.daysSince(lastLog.log_date) > 7;
+        html += `<tr style="${isStalled ? 'background:rgba(239,68,68,0.05);' : ''}">
+          <td><strong>${p.title}</strong></td>
+          <td class="text-muted">${unit?.name || '?'}</td>
+          <td class="text-muted">${lastLog ? `${lastLog.log_date} (${this.daysSince(lastLog.log_date)}日前)` : '<span class="badge badge-danger">未着手</span>'}</td>
+          <td>${projectLogs.length}件</td>
+          <td>
+            <div class="progress-bar" style="width:80px;"><div class="progress-fill" style="width:${p.progress_percent || 0}%"></div></div>
+            <div style="font-size:11px;margin-top:2px;">${p.progress_percent || 0}%</div>
+          </td>
+        </tr>`;
+      });
+      html += '</tbody></table></div>';
+    }
+
+    html += '<h3 class="mt-3 mb-2" style="font-size:15px;">📜 日報履歴</h3>';
+    if (logs.length === 0) {
+      html += this.emptyState('📝', '日報なし', '');
+    } else {
+      html += '<div class="card">';
+      logs.slice(0, 30).forEach(l => {
+        const p = this.state.projects.find(x => x.id === l.project_id);
+        const s = this.state.staff.find(x => x.id === l.staff_id);
+        html += `<div style="padding:12px 0;border-bottom:1px solid var(--gray-100);">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <div><strong>${p?.title || '?'}</strong></div>
+            <div style="font-size:11px;color:var(--gray-500);">${l.log_date} ・ ${s?.name || '-'}</div>
+          </div>
+          <div style="font-size:13px;color:var(--gray-700);">${l.action_content}</div>
+          ${l.kpi_value_change ? `<div style="font-size:11px;color:var(--success);margin-top:4px;">KPI 変化: ${l.kpi_value_change > 0 ? '+' : ''}${l.kpi_value_change}</div>` : ''}
+          ${l.milestone_completed ? `<div style="font-size:11px;color:var(--success);margin-top:4px;">✅ マイルストーン完了</div>` : ''}
+        </div>`;
+      });
+      html += '</div>';
+    }
+    container.innerHTML = html;
+  },
+
+  async openLogModal() {
+    const activeProjects = this.state.projects.filter(p =>
+      p.status === 'active' &&
+      (auth.isCEO() || p.assigned_to === auth.currentUser.id)
+    );
+    if (activeProjects.length === 0) {
+      this.toast('アクティブなプロジェクトがありません', 'error');
+      return;
+    }
+
+    const projectOpts = activeProjects.map(p => `<option value="${p.id}">${p.title}</option>`).join('');
+    this.showModal('日報を記録', `
+      <div class="form-group">
+        <label class="form-label">プロジェクト *</label>
+        <select id="l_project" class="form-select" onchange="App.onLogProjectChange()">
+          <option value="">-- 選択 --</option>${projectOpts}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">日付</label>
+        <input type="date" id="l_date" class="form-input" value="${new Date().toISOString().slice(0,10)}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">今日の行動 *</label>
+        <textarea id="l_action" class="form-textarea" placeholder="このプロジェクトに対して、今日何をしたか" rows="4"></textarea>
+      </div>
+      <div id="l_kpiArea"></div>
+      <div id="l_msArea"></div>
+    `, async () => {
+      const data = {
+        project_id: document.getElementById('l_project').value,
+        log_date: document.getElementById('l_date').value,
+        action_content: document.getElementById('l_action').value.trim(),
+        staff_id: auth.currentUser.id
+      };
+      if (!data.project_id || !data.action_content) {
+        this.toast('プロジェクトと内容は必須', 'error');
+        return false;
+      }
+
+      // KPI 更新
+      const kpiSelect = document.getElementById('l_kpi');
+      if (kpiSelect && kpiSelect.value) {
+        const change = parseFloat(document.getElementById('l_kpi_change').value);
+        if (!isNaN(change)) {
+          data.kpi_id = kpiSelect.value;
+          data.kpi_value_change = change;
+        }
+      }
+      // マイルストーン完了
+      const msSelect = document.getElementById('l_ms');
+      if (msSelect && msSelect.value) {
+        data.milestone_id = msSelect.value;
+        data.milestone_completed = document.getElementById('l_ms_done').checked;
+      }
+
+      try {
+        await db.createDailyLog(data);
+
+        // KPI 値を更新
+        if (data.kpi_id && data.kpi_value_change) {
+          const kpis = await db.getKPIs(data.project_id);
+          const kpi = kpis.find(k => k.id === data.kpi_id);
+          if (kpi) {
+            const newVal = (kpi.current_value || 0) + data.kpi_value_change;
+            await db.updateKPI(data.kpi_id, { current_value: newVal });
+          }
+        }
+        // マイルストーン完了
+        if (data.milestone_id && data.milestone_completed) {
+          await db.updateMilestone(data.milestone_id, {
+            status: 'completed',
+            completed_at: new Date().toISOString()
+          });
+        }
+
+        // 進捗を再計算
+        await this.recalculateProgress(data.project_id);
+
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.toast('日報を記録しました');
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    });
+  },
+
+  async onLogProjectChange() {
+    const projectId = document.getElementById('l_project').value;
+    const kpiArea = document.getElementById('l_kpiArea');
+    const msArea = document.getElementById('l_msArea');
+    kpiArea.innerHTML = '';
+    msArea.innerHTML = '';
+    if (!projectId) return;
+
+    const project = this.state.projects.find(p => p.id === projectId);
+    if (project.solution_type === 'kpi') {
+      const kpis = await db.getKPIs(projectId);
+      if (kpis.length > 0) {
+        const opts = kpis.map(k => `<option value="${k.id}">${k.name} (現在 ${k.current_value} ${k.unit || ''})</option>`).join('');
+        kpiArea.innerHTML = `
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">影響したKPI</label>
+              <select id="l_kpi" class="form-select"><option value="">-- なし --</option>${opts}</select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">変化量 (+/-)</label>
+              <input type="number" id="l_kpi_change" class="form-input" step="any" placeholder="例: +5">
+            </div>
+          </div>`;
+      }
+    } else {
+      const milestones = await db.getMilestones(projectId);
+      const pending = milestones.filter(m => m.status !== 'completed');
+      if (pending.length > 0) {
+        const opts = pending.map(m => `<option value="${m.id}">${m.title}</option>`).join('');
+        msArea.innerHTML = `
+          <div class="form-group">
+            <label class="form-label">関連マイルストーン</label>
+            <select id="l_ms" class="form-select"><option value="">-- なし --</option>${opts}</select>
+          </div>
+          <div class="form-group">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+              <input type="checkbox" id="l_ms_done">
+              このマイルストーンを完了とする
+            </label>
+          </div>`;
+      }
+    }
+  },
+
+  async recalculateProgress(projectId) {
+    const project = this.state.projects.find(p => p.id === projectId);
+    if (!project) return;
+    let progress = 0;
+
+    if (project.solution_type === 'kpi') {
+      const kpis = await db.getKPIs(projectId);
+      if (kpis.length > 0) {
+        const sum = kpis.reduce((s, k) => {
+          const range = k.target_value - k.start_value;
+          const p = range !== 0 ? ((k.current_value - k.start_value) / range) * 100 : 0;
+          return s + Math.max(0, Math.min(100, p));
+        }, 0);
+        progress = Math.round(sum / kpis.length);
+      }
+    } else {
+      const milestones = await db.getMilestones(projectId);
+      if (milestones.length > 0) {
+        const done = milestones.filter(m => m.status === 'completed').length;
+        progress = Math.round((done / milestones.length) * 100);
+      }
+    }
+
+    await db.updateProject(projectId, {
+      progress_percent: progress,
+      status: progress >= 100 ? 'completed' : 'active'
+    });
+  },
+
+  // ===== Staff Management =====
+  renderStaff() {
+    const container = document.getElementById('staffContent');
+    if (!auth.isCEO()) {
+      container.innerHTML = '<p class="text-muted">この画面は CEO のみ利用可能です</p>';
+      return;
+    }
+    if (this.state.staff.length === 0) {
+      container.innerHTML = this.emptyState('👥', 'スタッフ未登録', '');
+      return;
+    }
+    let html = '<div class="card"><table class="table"><thead><tr><th>名前</th><th>メール</th><th>権限</th><th>初回ログイン</th><th>状態</th><th></th></tr></thead><tbody>';
+    this.state.staff.forEach(s => {
+      html += `<tr>
+        <td><strong>${s.name}</strong></td>
+        <td class="text-muted">${s.email}</td>
+        <td><span class="badge ${s.role === 'ceo' ? 'badge-warning' : s.role === 'manager' ? 'badge-info' : 'badge-gray'}">${this.roleLabel(s.role)}</span></td>
+        <td>${s.is_first_login ? '<span class="badge badge-warning">未変更</span>' : '✅'}</td>
+        <td>${s.is_active ? '<span class="badge badge-success">有効</span>' : '<span class="badge badge-danger">無効</span>'}</td>
+        <td>
+          ${s.id !== auth.currentUser.id ? `
+            <button class="btn btn-sm btn-secondary" onclick="App.openStaffModal('${s.id}')">編集</button>
+            <button class="btn btn-sm btn-danger" onclick="App.deleteStaff('${s.id}')">削除</button>
+          ` : '<span class="text-muted">自分</span>'}
+        </td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+  },
+
+  openStaffModal(id = null) {
+    const s = id ? this.state.staff.find(x => x.id === id) : null;
+    this.showModal(s ? 'スタッフを編集' : '新規スタッフを登録', `
+      <div class="form-group">
+        <label class="form-label">氏名 *</label>
+        <input type="text" id="s_name" class="form-input" value="${s?.name || ''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">メールアドレス *</label>
+        <input type="email" id="s_email" class="form-input" value="${s?.email || ''}" ${s ? 'readonly' : ''}>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">権限 *</label>
+          <select id="s_role" class="form-select">
+            <option value="staff" ${s?.role === 'staff' ? 'selected' : ''}>スタッフ</option>
+            <option value="manager" ${s?.role === 'manager' ? 'selected' : ''}>マネージャー</option>
+            <option value="ceo" ${s?.role === 'ceo' ? 'selected' : ''}>CEO</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">状態</label>
+          <select id="s_active" class="form-select">
+            <option value="true" ${s?.is_active !== false ? 'selected' : ''}>有効</option>
+            <option value="false" ${s?.is_active === false ? 'selected' : ''}>無効</option>
+          </select>
+        </div>
+      </div>
+      ${!s ? `
+        <div class="form-group">
+          <label class="form-label">仮パスワード *</label>
+          <input type="text" id="s_pass" class="form-input" placeholder="本人が初回ログイン時に変更します">
+        </div>
+      ` : `
+        <div class="form-group">
+          <label class="form-label">パスワードをリセット（空白なら変更しない）</label>
+          <input type="text" id="s_pass" class="form-input" placeholder="新しい仮パスワード">
+        </div>
+      `}
+    `, async () => {
+      const data = {
+        name: document.getElementById('s_name').value.trim(),
+        email: document.getElementById('s_email').value.trim(),
+        role: document.getElementById('s_role').value,
+        is_active: document.getElementById('s_active').value === 'true'
+      };
+      const pass = document.getElementById('s_pass').value;
+      if (!data.name || !data.email) { this.toast('氏名とメールは必須', 'error'); return false; }
+      try {
+        if (id) {
+          const updates = { name: data.name, role: data.role, is_active: data.is_active };
+          if (pass) {
+            updates.password_hash = pass;
+            updates.is_first_login = true;
+          }
+          await db.updateStaff(id, updates);
+        } else {
+          if (!pass) { this.toast('仮パスワードを入力', 'error'); return false; }
+          await db.createStaff({
+            ...data,
+            password_hash: pass,
+            is_first_login: true
+          });
+        }
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.toast(id ? 'スタッフを更新しました' : 'スタッフを登録しました');
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    });
+  },
+
+  async deleteStaff(id) {
+    const s = this.state.staff.find(x => x.id === id);
+    if (!confirm(`「${s.name}」を削除しますか？`)) return;
+    try {
+      await db.deleteStaff(id);
+      await this.loadAllData();
+      this.renderCurrentPage();
+      this.toast('スタッフを削除しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  // ===== Notifications =====
+  async renderNotifications() {
+    const container = document.getElementById('notificationsContent');
+    if (this.state.notifications.length === 0) {
+      container.innerHTML = this.emptyState('🔔', '通知なし', '');
+      return;
+    }
+    let html = '<div class="card">';
+    this.state.notifications.forEach(n => {
+      const p = this.state.projects.find(x => x.id === n.project_id);
+      html += `<div style="padding:14px 0;border-bottom:1px solid var(--gray-100);cursor:pointer;${n.is_read ? '' : 'background:var(--primary-light);margin:0 -20px;padding:14px 20px;'}"
+        onclick="App.handleNotificationClick('${n.id}', '${n.project_id || ''}')">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <div><strong>${n.title}</strong> ${!n.is_read ? '<span class="badge badge-info">新着</span>' : ''}</div>
+          <div style="font-size:11px;color:var(--gray-500);">${this.formatDate(n.created_at)}</div>
+        </div>
+        <div style="font-size:13px;color:var(--gray-700);">${n.message || ''}</div>
+      </div>`;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+  },
+
+  async handleNotificationClick(notificationId, projectId) {
+    await db.markNotificationRead(notificationId);
+    await this.loadAllData();
+    if (projectId) {
+      this.openProjectDetail(projectId);
+    }
+    this.renderCurrentPage();
+  },
+
+  // ===== Modal Helper =====
+  showModal(title, bodyHtml, onSubmit, hideSubmit = false) {
+    const container = document.getElementById('modalContainer');
+    container.innerHTML = `
+      <div class="modal-overlay" id="modalOverlay">
+        <div class="modal" onclick="event.stopPropagation()">
+          <div class="modal-header">
+            <div class="modal-title">${title}</div>
+            <button class="modal-close" onclick="App.closeModal()">×</button>
+          </div>
+          <div class="modal-body">${bodyHtml}</div>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="App.closeModal()">${hideSubmit ? '閉じる' : 'キャンセル'}</button>
+            ${!hideSubmit ? '<button class="btn btn-primary" id="modalSubmit">保存</button>' : ''}
+          </div>
+        </div>
+      </div>
+    `;
+    document.getElementById('modalOverlay').addEventListener('click', (e) => {
+      if (e.target.id === 'modalOverlay') this.closeModal();
+    });
+    if (onSubmit) {
+      document.getElementById('modalSubmit').addEventListener('click', async () => {
+        const result = await onSubmit();
+        if (result !== false) this.closeModal();
+      });
+    }
+  },
+
+  closeModal() {
+    document.getElementById('modalContainer').innerHTML = '';
+  },
+
+  // ===== Toast =====
+  toast(message, type = 'success') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type === 'error' ? 'error' : type === 'warning' ? 'warning' : ''}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(100%)';
+      setTimeout(() => toast.remove(), 300);
+    }, 3500);
+  },
+
+  // ===== Helpers =====
+  unitTypeLabel(t) {
+    return { store: '🏪 店舗', product: '📦 プロダクト', department: '🏢 部署', service: '💼 サービス' }[t] || t;
+  },
+  roleLabel(r) {
+    return { ceo: 'CEO', manager: 'マネージャー', staff: 'スタッフ' }[r] || r;
+  },
+  statusLabel(s) {
+    return {
+      pending_design: '設計待ち',
+      pending_approval: '承認待ち',
+      active: '進行中',
+      completed: '完了',
+      paused: '停止中'
+    }[s] || s;
+  },
+  emptyState(icon, title, desc) {
+    return `<div class="empty-state"><div class="icon">${icon}</div><h3>${title}</h3>${desc ? `<p>${desc}</p>` : ''}</div>`;
+  },
+  daysSince(dateStr) {
+    const d = new Date(dateStr);
+    return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+  },
+  formatDate(iso) {
+    const d = new Date(iso);
+    return d.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+};
+
+window.App = App;
