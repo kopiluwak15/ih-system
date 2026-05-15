@@ -12,6 +12,7 @@ const App = {
     notifications: [],
     taskInstructions: [],
     routineTasks: [],
+    expandedUnits: new Set(),
     currentPage: 'dashboard'
   },
 
@@ -52,6 +53,15 @@ const App = {
       console.error('Load error:', err);
       this.toast('データ読み込みエラー: ' + err.message, 'error');
     }
+  },
+
+  toggleBusinessUnit(unitId) {
+    if (this.state.expandedUnits.has(unitId)) {
+      this.state.expandedUnits.delete(unitId);
+    } else {
+      this.state.expandedUnits.add(unitId);
+    }
+    if (this.state.currentPage === 'dashboard') this.renderDashboard();
   },
 
   updateTaskInstructionBadge() {
@@ -550,38 +560,59 @@ const App = {
       </div>
     `;
 
-    // 会社別 → 事業別 → プロジェクト ツリー
-    html += '<div class="hierarchy-tree">';
+    // 会社別 → 事業別 → プロジェクト ツリー（コンパクト + 展開可能）
+    html += '<div class="hierarchy-tree-v2">';
     if (this.state.companies.length === 0) {
       html += this.emptyState('🏢', '会社が未登録', 'まず会社管理から登録してください');
     } else {
       this.state.companies.forEach(company => {
         const units = this.state.businessUnits.filter(u => u.company_id === company.id);
-        html += `<div class="company-block">
-          <div class="company-name">
-            <span>${company.name}</span>
+        html += `<div class="company-row">
+          <div class="company-row-header">
+            <span class="company-row-name">${company.name}</span>
             <span class="company-code">${company.code}</span>
           </div>`;
 
         if (units.length === 0) {
-          html += '<div class="text-muted" style="padding-left:16px;font-size:12px;">事業未登録</div>';
+          html += '<div class="text-muted" style="padding-left:12px;font-size:11px;">事業未登録</div>';
         } else {
-          html += '<div class="business-units">';
+          html += '<div class="bu-grid">';
           units.forEach(unit => {
             const unitProjects = this.state.projects.filter(p => p.business_unit_id === unit.id);
             const activeCount = unitProjects.filter(p => p.status === 'active').length;
             const stalledCount = unitProjects.filter(p => p.status === 'paused').length;
-            html += `<div class="business-unit">
-              <div class="business-unit-name">${unit.name}</div>
-              <div class="business-unit-meta">
-                ${this.unitTypeLabel(unit.type)} ・ プロジェクト ${unitProjects.length}件
-              </div>
-              ${unitProjects.length > 0 ? `
-                <div style="margin-top:8px;font-size:11px;">
-                  <span class="badge badge-success">進行${activeCount}</span>
-                  ${stalledCount > 0 ? `<span class="badge badge-danger">停滞${stalledCount}</span>` : ''}
+            const isExpanded = this.state.expandedUnits.has(unit.id);
+            const totalCount = unitProjects.length;
+
+            html += `<div class="bu-card ${isExpanded ? 'expanded' : ''}" onclick="App.toggleBusinessUnit('${unit.id}')">
+              <div class="bu-card-main">
+                <div class="bu-card-left">
+                  <div class="bu-card-name">${unit.name}</div>
+                  <div class="bu-card-meta">${unit.code} ・ ${totalCount}件</div>
                 </div>
-              ` : ''}
+                <div class="bu-card-right">
+                  ${activeCount > 0 ? `<span class="bu-pill bu-pill-active">進行${activeCount}</span>` : ''}
+                  ${stalledCount > 0 ? `<span class="bu-pill bu-pill-stalled">停滞${stalledCount}</span>` : ''}
+                  <span class="bu-arrow">${isExpanded ? '▾' : '▸'}</span>
+                </div>
+              </div>
+              ${isExpanded ? `<div class="bu-card-projects" onclick="event.stopPropagation()">
+                ${unitProjects.length === 0 ? '<div class="text-muted" style="font-size:11px;padding:8px 0;">プロジェクトなし</div>' :
+                  unitProjects.map(p => {
+                    const assignee = this.state.staff.find(s => s.id === p.assigned_to);
+                    return `<div class="bu-project" onclick="App.openProjectDetail('${p.id}')">
+                      <div class="bu-project-row">
+                        <span class="badge status-${p.status}" style="font-size:10px;">${this.statusLabel(p.status)}</span>
+                        <span class="bu-project-title">${p.title}</span>
+                        ${assignee ? `<span class="text-muted" style="font-size:10px;margin-left:auto;">${assignee.name}</span>` : ''}
+                      </div>
+                      <div class="bu-project-progress">
+                        <div class="progress-bar" style="flex:1;height:5px;"><div class="progress-fill" style="width:${p.progress_percent || 0}%"></div></div>
+                        <span style="font-size:10px;color:var(--gray-500);min-width:32px;text-align:right;">${p.progress_percent || 0}%</span>
+                      </div>
+                    </div>`;
+                  }).join('')}
+              </div>` : ''}
             </div>`;
           });
           html += '</div>';
