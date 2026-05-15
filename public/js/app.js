@@ -583,14 +583,19 @@ const App = {
             const stalledCount = unitProjects.filter(p => p.status === 'paused').length;
             const isExpanded = this.state.expandedUnits.has(unit.id);
             const totalCount = unitProjects.length;
+            // この事業に期限警告のプロジェクトがあるかチェック
+            const hasOverdue = unitProjects.some(p => p.status === 'active' && this.daysUntilDeadline(p.deadline) !== null && this.daysUntilDeadline(p.deadline) < 0);
+            const hasWarning = unitProjects.some(p => p.status === 'active' && (() => { const d = this.daysUntilDeadline(p.deadline); return d !== null && d >= 0 && d <= 10; })());
+            const buAlertClass = hasOverdue ? 'deadline-overdue' : (hasWarning ? 'deadline-warning' : '');
 
-            html += `<div class="bu-card ${isExpanded ? 'expanded' : ''}" onclick="App.toggleBusinessUnit('${unit.id}')">
+            html += `<div class="bu-card ${isExpanded ? 'expanded' : ''} ${buAlertClass}" onclick="App.toggleBusinessUnit('${unit.id}')">
               <div class="bu-card-main">
                 <div class="bu-card-left">
                   <div class="bu-card-name">${unit.name}</div>
                   <div class="bu-card-meta">${unit.code} ・ ${totalCount}件</div>
                 </div>
                 <div class="bu-card-right">
+                  ${hasOverdue ? '<span class="bu-pill bu-pill-stalled">🚨期限超過</span>' : (hasWarning ? '<span class="bu-pill" style="background:#fef3c7;color:#92400e;">⏰期限間近</span>' : '')}
                   ${activeCount > 0 ? `<span class="bu-pill bu-pill-active">進行${activeCount}</span>` : ''}
                   ${stalledCount > 0 ? `<span class="bu-pill bu-pill-stalled">停滞${stalledCount}</span>` : ''}
                   <span class="bu-arrow">${isExpanded ? '▾' : '▸'}</span>
@@ -600,10 +605,12 @@ const App = {
                 ${unitProjects.length === 0 ? '<div class="text-muted" style="font-size:11px;padding:8px 0;">プロジェクトなし</div>' :
                   unitProjects.map(p => {
                     const assignee = this.state.staff.find(s => s.id === p.assigned_to);
-                    return `<div class="bu-project" onclick="App.openProjectDetail('${p.id}')">
+                    const dlClass = this.deadlineClass(p.deadline);
+                    return `<div class="bu-project ${dlClass}" onclick="App.openProjectDetail('${p.id}')">
                       <div class="bu-project-row">
                         <span class="badge status-${p.status}" style="font-size:10px;">${this.statusLabel(p.status)}</span>
                         <span class="bu-project-title">${p.title}</span>
+                        ${this.deadlineTagHtml(p.deadline)}
                         ${assignee ? `<span class="text-muted" style="font-size:10px;margin-left:auto;">${assignee.name}</span>` : ''}
                       </div>
                       <div class="bu-project-progress">
@@ -631,7 +638,8 @@ const App = {
         const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
         const company = unit ? this.state.companies.find(c => c.id === unit.company_id) : null;
         const assignee = this.state.staff.find(s => s.id === p.assigned_to);
-        html += `<div class="project-card" onclick="App.openProjectDetail('${p.id}')">
+        const dlClass = this.deadlineClass(p.deadline);
+        html += `<div class="project-card ${dlClass}" onclick="App.openProjectDetail('${p.id}')">
           <div class="project-card-header">
             <div>
               <div class="project-card-title">${p.title}</div>
@@ -641,9 +649,12 @@ const App = {
                 ${assignee ? ` ・ 担当 ${assignee.name}` : ''}
               </div>
             </div>
-            <span class="badge ${p.solution_type === 'kpi' ? 'badge-info' : 'badge-warning'}">
-              ${p.solution_type === 'kpi' ? 'KPI' : 'マイルストーン'}
-            </span>
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+              ${this.deadlineTagHtml(p.deadline)}
+              <span class="badge ${p.solution_type === 'kpi' ? 'badge-info' : 'badge-warning'}">
+                ${p.solution_type === 'kpi' ? 'KPI' : 'マイルストーン'}
+              </span>
+            </div>
           </div>
           <div class="progress-bar"><div class="progress-fill" style="width:${p.progress_percent || 0}%"></div></div>
           <div class="text-muted" style="font-size:11px;margin-top:4px;">${p.progress_percent || 0}% 達成</div>
@@ -2005,6 +2016,29 @@ const App = {
   daysSince(dateStr) {
     const d = new Date(dateStr);
     return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+  },
+  daysUntilDeadline(deadline) {
+    if (!deadline) return null;
+    const d = new Date(deadline);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    return Math.floor((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  },
+  deadlineClass(deadline) {
+    const days = this.daysUntilDeadline(deadline);
+    if (days === null) return '';
+    if (days < 0) return 'deadline-overdue';
+    if (days <= 10) return 'deadline-warning';
+    return '';
+  },
+  deadlineTagHtml(deadline) {
+    const days = this.daysUntilDeadline(deadline);
+    if (days === null) return '';
+    if (days < 0) return `<span class="deadline-tag overdue">🚨 期限超過${Math.abs(days)}日</span>`;
+    if (days === 0) return `<span class="deadline-tag overdue">🚨 本日締切</span>`;
+    if (days <= 10) return `<span class="deadline-tag warning">⏰ あと${days}日</span>`;
+    return '';
   },
   formatDate(iso) {
     const d = new Date(iso);
