@@ -1052,39 +1052,10 @@ const App = {
     let detailContent = '';
     if (p.solution_type === 'kpi') {
       const kpis = await db.getKPIs(id);
-      if (kpis.length === 0) {
-        detailContent = '<p class="text-muted">KPI 未設定</p>';
-      } else {
-        detailContent = kpis.map(k => {
-          const range = k.target_value - k.start_value;
-          const progress = range !== 0 ? Math.round(((k.current_value - k.start_value) / range) * 100) : 0;
-          return `<div style="padding:12px;background:var(--gray-50);border-radius:8px;margin-bottom:8px;">
-            <div style="font-weight:600;">${k.name}</div>
-            <div style="font-size:12px;color:var(--gray-500);margin-top:4px;">
-              ${k.start_value} → ${k.current_value} / 目標 ${k.target_value} ${k.unit || ''}
-              ${k.target_date ? ` (期限 ${k.target_date})` : ''}
-            </div>
-            <div class="progress-bar" style="margin-top:8px;"><div class="progress-fill" style="width:${Math.max(0, Math.min(100, progress))}%"></div></div>
-            <div style="font-size:11px;color:var(--gray-500);margin-top:4px;">${progress}%</div>
-          </div>`;
-        }).join('');
-      }
+      detailContent = this.renderKpiChartView(kpis);
     } else {
       const milestones = await db.getMilestones(id);
-      if (milestones.length === 0) {
-        detailContent = '<p class="text-muted">マイルストーン未設定</p>';
-      } else {
-        detailContent = milestones.map(m => `<div style="padding:12px;background:var(--gray-50);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <div style="font-weight:600;">${m.status === 'completed' ? '✅ ' : m.status === 'in_progress' ? '🔄 ' : '⏳ '}${m.title}</div>
-            ${m.description ? `<div style="font-size:12px;color:var(--gray-500);">${m.description}</div>` : ''}
-            ${m.due_date ? `<div style="font-size:11px;color:var(--gray-500);">期限 ${m.due_date}</div>` : ''}
-          </div>
-          <span class="badge ${m.status === 'completed' ? 'badge-success' : m.status === 'in_progress' ? 'badge-info' : 'badge-gray'}">
-            ${m.status === 'completed' ? '完了' : m.status === 'in_progress' ? '進行中' : '未着手'}
-          </span>
-        </div>`).join('');
-      }
+      detailContent = this.renderMilestoneTimelineView(milestones);
     }
 
     // 日報履歴
@@ -1115,6 +1086,108 @@ const App = {
       <h4 style="margin:16px 0 8px 0;font-size:14px;">📝 最近の日報</h4>
       ${logsHtml}
     `, null, true);
+  },
+
+  // ===== KPI ツリーチャート（読み取り専用） =====
+  renderKpiChartView(kpis) {
+    if (!kpis || kpis.length === 0) {
+      return '<p class="text-muted" style="text-align:center;padding:20px;">KPI 未設定</p>';
+    }
+
+    // Lv.1 を見つける
+    const lv1 = kpis.find(k => (k.level || 1) === 1) || kpis.find(k => !k.parent_kpi_id);
+    if (!lv1) {
+      // 階層がない（古いデータ）→ 平面リスト表示
+      return `<div class="kpi-tree-level2">${kpis.map(k => this.kpiViewCard(k, 2)).join('')}</div>`;
+    }
+
+    const lv2List = kpis.filter(k => k.parent_kpi_id === lv1.id);
+
+    let html = '<div class="kpi-view-wrap">';
+    html += `<div class="kpi-tree-level1">${this.kpiViewCard(lv1, 1)}</div>`;
+
+    if (lv2List.length > 0) {
+      html += '<div class="kpi-tree-arrow">▼</div>';
+      html += `<div class="kpi-tree-level2">${lv2List.map(k => this.kpiViewCard(k, 2)).join('')}</div>`;
+
+      // Lv.3 を Lv.2 ごとにグループ化
+      const lv3Groups = lv2List.map(l2 => ({
+        parent: l2,
+        children: kpis.filter(k => k.parent_kpi_id === l2.id)
+      })).filter(g => g.children.length > 0);
+
+      if (lv3Groups.length > 0) {
+        html += '<div class="kpi-tree-arrow">▼</div>';
+        lv3Groups.forEach(g => {
+          html += `<div class="kpi-tree-level3-group">
+            <div class="kpi-tree-level3-header">
+              <span class="kpi-tree-level3-label">└ <strong>${g.parent.name}</strong> の実行KPI</span>
+            </div>
+            <div class="kpi-tree-level3">${g.children.map(k => this.kpiViewCard(k, 3)).join('')}</div>
+          </div>`;
+        });
+      }
+    }
+
+    html += '</div>';
+    return html;
+  },
+
+  kpiViewCard(k, level) {
+    const range = k.target_value - k.start_value;
+    const rawProgress = range !== 0 ? ((k.current_value - k.start_value) / range) * 100 : 0;
+    const progress = Math.round(Math.max(0, Math.min(100, rawProgress)));
+    const progressColor = progress >= 100 ? '#10b981' : (progress >= 50 ? '#3b82f6' : (progress >= 25 ? '#f59e0b' : '#ef4444'));
+
+    return `<div class="kpi-row kpi-row-lv${level} kpi-view-card">
+      <div class="kpi-view-name">${k.name}</div>
+      <div class="kpi-view-stats">
+        <span class="kpi-view-current">${k.current_value}</span>
+        <span class="kpi-view-sep">/</span>
+        <span class="kpi-view-target">${k.target_value}</span>
+        <span class="kpi-view-unit">${k.unit || ''}</span>
+      </div>
+      <div class="progress-bar" style="margin-top:4px;height:6px;"><div class="progress-fill" style="width:${progress}%;background:${progressColor};"></div></div>
+      <div class="kpi-view-progress">${progress}%${k.target_date ? ` ・ ${k.target_date}` : ''}</div>
+    </div>`;
+  },
+
+  // ===== マイルストーンタイムライン（読み取り専用） =====
+  renderMilestoneTimelineView(milestones) {
+    if (!milestones || milestones.length === 0) {
+      return '<p class="text-muted" style="text-align:center;padding:20px;">マイルストーン未設定</p>';
+    }
+    const sorted = [...milestones].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+    return `<div class="ms-timeline ms-timeline-view">
+      ${sorted.map((m, i) => {
+        const isDone = m.status === 'completed';
+        const isProgress = m.status === 'in_progress';
+        const numBg = isDone
+          ? 'linear-gradient(135deg, #10b981, #047857)'
+          : isProgress
+            ? 'linear-gradient(135deg, #3b82f6, #1e40af)'
+            : 'linear-gradient(135deg, #9ca3af, #6b7280)';
+        const bodyBg = isDone
+          ? 'linear-gradient(135deg, #ecfdf5, #d1fae5)'
+          : isProgress
+            ? 'linear-gradient(135deg, #eff6ff, #dbeafe)'
+            : 'linear-gradient(135deg, var(--gray-50), var(--gray-100))';
+        const borderColor = isDone ? '#10b981' : isProgress ? '#3b82f6' : '#d1d5db';
+        const icon = isDone ? '✅' : isProgress ? '🔄' : '⏳';
+
+        return `<div class="ms-phase ms-phase-view">
+          <div class="ms-phase-num" style="background:${numBg};">${i + 1}</div>
+          <div class="ms-phase-body" style="background:${bodyBg};border-color:${borderColor};">
+            <div class="ms-view-title">${icon} ${m.title}</div>
+            ${m.description ? `<div class="ms-view-desc">${m.description}</div>` : ''}
+            <div class="ms-view-meta">
+              ${m.due_date ? `<span>📅 期限 ${m.due_date}</span>` : ''}
+              ${m.completed_at ? `<span style="color:var(--success);">✓ 完了 ${this.formatDate(m.completed_at)}</span>` : ''}
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
   },
 
   // ===== Design (担当者がKPI/Milestoneを設計) =====

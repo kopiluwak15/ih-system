@@ -858,6 +858,92 @@ body {
   color: white;
 }
 
+/* ===== KPI View Card (読み取り専用) ===== */
+.kpi-view-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.kpi-view-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kpi-view-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gray-900);
+}
+
+.kpi-tree-level1 .kpi-view-name { font-size: 16px; }
+.kpi-tree-level2 .kpi-view-name { font-size: 13px; }
+.kpi-tree-level3 .kpi-view-name { font-size: 12px; }
+
+.kpi-view-stats {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.kpi-view-current {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.kpi-tree-level1 .kpi-view-current { font-size: 22px; }
+.kpi-tree-level3 .kpi-view-current { font-size: 15px; }
+
+.kpi-view-sep {
+  color: var(--gray-400);
+}
+
+.kpi-view-target {
+  color: var(--gray-700);
+  font-weight: 600;
+}
+
+.kpi-view-unit {
+  color: var(--gray-500);
+  font-size: 11px;
+}
+
+.kpi-view-progress {
+  font-size: 10px;
+  color: var(--gray-500);
+  text-align: right;
+  font-weight: 600;
+}
+
+/* ===== Milestone Timeline View ===== */
+.ms-timeline-view .ms-phase-body {
+  padding: 10px 14px;
+}
+
+.ms-view-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--gray-900);
+}
+
+.ms-view-desc {
+  font-size: 12px;
+  color: var(--gray-700);
+  margin-top: 2px;
+}
+
+.ms-view-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--gray-500);
+  margin-top: 6px;
+}
+
 /* ===== Milestone Timeline ===== */
 .ms-timeline {
   position: relative;
