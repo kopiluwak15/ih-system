@@ -38,9 +38,9 @@ const App = {
       ]);
       this.state.companies = companies;
       this.state.businessUnits = businessUnits;
-      this.state.projects = projects;
+      this.state.projects = projects.filter(p => !p.archived);
       this.state.staff = staff;
-      this.state.taskInstructions = taskInstructions;
+      this.state.taskInstructions = taskInstructions.filter(t => !t.archived);
       this.state.routineTasks = routineTasks;
 
       if (auth.currentUser?.id) {
@@ -320,31 +320,36 @@ const App = {
     }
   },
 
-  async completeTaskInstruction(id) {
-    if (!confirm('このタスクを完了として報告しますか？')) return;
-    try {
-      await db.updateTaskInstruction(id, {
-        status: 'completed',
-        completed_at: new Date().toISOString()
-      });
-      await this.loadAllData();
-      this.renderCurrentPage();
-      this.toast('完了報告しました');
-    } catch (e) {
-      this.toast('エラー: ' + e.message, 'error');
-    }
+  completeTaskInstruction(id) {
+    const t = this.state.taskInstructions.find(x => x.id === id);
+    if (!t) return;
+    this.openCompletionModal('task', id, t.title,
+      async (note) => {
+        await db.updateTaskInstruction(id, {
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          completion_note: note,
+          archived: true,
+          archived_at: new Date().toISOString()
+        });
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.closeModal();
+      },
+      async () => {
+        await db.deleteTaskInstruction(id);
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.closeModal();
+      }
+    );
   },
 
   async deleteTaskInstruction(id) {
-    if (!confirm('この指示を削除しますか？')) return;
-    try {
+    const t = this.state.taskInstructions.find(x => x.id === id);
+    await this.ceoDeleteWithPassword(`タスク指示: ${t?.title || ''}`, async () => {
       await db.deleteTaskInstruction(id);
-      await this.loadAllData();
-      this.renderCurrentPage();
-      this.toast('削除しました');
-    } catch (e) {
-      this.toast('エラー: ' + e.message, 'error');
-    }
+    });
   },
 
   // ===== Routine Tasks =====
@@ -1030,15 +1035,9 @@ const App = {
 
   async deleteProject(id) {
     const p = this.state.projects.find(x => x.id === id);
-    if (!confirm(`「${p.title}」を削除しますか？\nKPI/マイルストーン/日報も全て削除されます。`)) return;
-    try {
+    await this.ceoDeleteWithPassword(`プロジェクト: ${p?.title || ''}`, async () => {
       await db.deleteProject(id);
-      await this.loadAllData();
-      this.renderCurrentPage();
-      this.toast('課題を削除しました');
-    } catch (e) {
-      this.toast('エラー: ' + e.message, 'error');
-    }
+    });
   },
 
   // ===== Project Detail Modal =====
@@ -1086,6 +1085,70 @@ const App = {
       <h4 style="margin:16px 0 8px 0;font-size:14px;">📝 最近の日報</h4>
       ${logsHtml}
     `, null, true);
+  },
+
+  // ===== Archive / Complete 共通フロー =====
+  CEO_DELETE_PASSWORD: 'mk550428',
+
+  // 共通の完了報告モーダル（破棄 or アーカイブ）
+  openCompletionModal(entityType, entityId, entityTitle, onArchive, onDiscard) {
+    this.showModal(`完了報告: ${entityTitle}`, `
+      <p class="text-muted mb-2" style="font-size:12px;">完了内容を記録します。「破棄」は履歴に残さず消去、「アーカイブ」は履歴として保存します。</p>
+      <div class="form-group">
+        <label class="form-label">完了報告 *</label>
+        <textarea id="comp_note" class="form-textarea" rows="4" placeholder="達成した内容、得られた成果、学んだことなど"></textarea>
+      </div>
+    `, async () => {
+      const note = document.getElementById('comp_note').value.trim();
+      if (!note) {
+        this.toast('完了報告を入力してください', 'error');
+        return false;
+      }
+      try {
+        await onArchive(note);
+        this.toast('アーカイブしました（履歴に保存）');
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    }, false, {
+      submitLabel: '📦 アーカイブ（保存）',
+      submitClass: 'btn-success',
+      extraButton: {
+        label: '🗑 破棄',
+        class: 'btn-danger',
+        onClick: async () => {
+          if (!confirm('完了内容を履歴に残さず破棄します。本当によろしいですか？')) return false;
+          try {
+            await onDiscard();
+            this.toast('破棄しました');
+            return true;
+          } catch (e) {
+            this.toast('エラー: ' + e.message, 'error');
+            return false;
+          }
+        }
+      }
+    });
+  },
+
+  // CEO 用パスワード認証付き削除
+  async ceoDeleteWithPassword(entityName, deleteFunc) {
+    const pwd = prompt(`「${entityName}」を完全削除します。\n\nCEO パスワードを入力してください：`);
+    if (pwd === null) return;
+    if (pwd !== this.CEO_DELETE_PASSWORD) {
+      this.toast('パスワードが正しくありません', 'error');
+      return;
+    }
+    try {
+      await deleteFunc();
+      await this.loadAllData();
+      this.renderCurrentPage();
+      this.toast('完全削除しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
   },
 
   // ===== KPI ツリーチャート（読み取り専用） =====
@@ -1138,6 +1201,8 @@ const App = {
     const rawProgress = range !== 0 ? ((k.current_value - k.start_value) / range) * 100 : 0;
     const progress = Math.round(Math.max(0, Math.min(100, rawProgress)));
     const progressColor = progress >= 100 ? '#10b981' : (progress >= 50 ? '#3b82f6' : (progress >= 25 ? '#f59e0b' : '#ef4444'));
+    const canComplete = progress >= 100 && !k.archived;
+    const isCEO = auth.isCEO();
 
     return `<div class="kpi-row kpi-row-lv${level} kpi-view-card">
       <div class="kpi-view-name">${k.name}</div>
@@ -1149,7 +1214,39 @@ const App = {
       </div>
       <div class="progress-bar" style="margin-top:4px;height:6px;"><div class="progress-fill" style="width:${progress}%;background:${progressColor};"></div></div>
       <div class="kpi-view-progress">${progress}%${k.target_date ? ` ・ ${k.target_date}` : ''}</div>
+      <div style="display:flex;gap:4px;margin-top:6px;justify-content:flex-end;">
+        ${canComplete ? `<button class="btn btn-sm btn-success" onclick="event.stopPropagation();App.completeKpi('${k.id}', '${k.name.replace(/'/g, "\\'")}'); ">🏁 完了報告</button>` : ''}
+        ${isCEO ? `<button class="btn btn-sm" style="background:none;border:none;color:var(--gray-400);cursor:pointer;padding:2px 4px;font-size:13px;" title="完全削除" onclick="event.stopPropagation();App.ceoDeleteKpi('${k.id}', '${k.name.replace(/'/g, "\\'")}');">🗑</button>` : ''}
+      </div>
     </div>`;
+  },
+
+  completeKpi(id, title) {
+    this.openCompletionModal('kpi', id, title,
+      async (note) => {
+        await db.updateKPI(id, {
+          archived: true,
+          archived_at: new Date().toISOString(),
+          completion_note: note
+        });
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.closeModal();
+        // 詳細を再表示する場合は親プロジェクトから再オープン（ここではトースト後 modal を閉じる）
+      },
+      async () => {
+        await db.deleteKPI(id);
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.closeModal();
+      }
+    );
+  },
+
+  async ceoDeleteKpi(id, title) {
+    await this.ceoDeleteWithPassword(`KPI: ${title}`, async () => {
+      await db.deleteKPI(id);
+    });
   },
 
   // ===== マイルストーンタイムライン（読み取り専用） =====
@@ -1157,7 +1254,11 @@ const App = {
     if (!milestones || milestones.length === 0) {
       return '<p class="text-muted" style="text-align:center;padding:20px;">マイルストーン未設定</p>';
     }
-    const sorted = [...milestones].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+    // archived を除外
+    const visible = milestones.filter(m => !m.archived);
+    const sorted = [...visible].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+    const isCEO = auth.isCEO();
+
     return `<div class="ms-timeline ms-timeline-view">
       ${sorted.map((m, i) => {
         const isDone = m.status === 'completed';
@@ -1184,10 +1285,65 @@ const App = {
               ${m.due_date ? `<span>📅 期限 ${m.due_date}</span>` : ''}
               ${m.completed_at ? `<span style="color:var(--success);">✓ 完了 ${this.formatDate(m.completed_at)}</span>` : ''}
             </div>
+            <div style="display:flex;gap:4px;margin-top:8px;">
+              ${!isDone ? `<button class="btn btn-sm btn-success" onclick="event.stopPropagation();App.completeMilestone('${m.id}', '${m.title.replace(/'/g, "\\'")}');">🏁 完了報告</button>` : ''}
+              ${isDone && !m.archived ? `<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();App.archiveMilestone('${m.id}', '${m.title.replace(/'/g, "\\'")}');">📦 アーカイブ</button>` : ''}
+              ${isCEO ? `<button class="btn btn-sm" style="background:none;border:none;color:var(--gray-400);cursor:pointer;padding:2px 4px;font-size:13px;margin-left:auto;" title="完全削除" onclick="event.stopPropagation();App.ceoDeleteMilestone('${m.id}', '${m.title.replace(/'/g, "\\'")}');">🗑</button>` : ''}
+            </div>
           </div>
         </div>`;
       }).join('')}
     </div>`;
+  },
+
+  completeMilestone(id, title) {
+    this.openCompletionModal('milestone', id, title,
+      async (note) => {
+        await db.updateMilestone(id, {
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          completion_note: note,
+          archived: true,
+          archived_at: new Date().toISOString()
+        });
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.closeModal();
+      },
+      async () => {
+        await db.deleteMilestone(id);
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.closeModal();
+      }
+    );
+  },
+
+  archiveMilestone(id, title) {
+    this.openCompletionModal('milestone', id, title,
+      async (note) => {
+        await db.updateMilestone(id, {
+          completion_note: note,
+          archived: true,
+          archived_at: new Date().toISOString()
+        });
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.closeModal();
+      },
+      async () => {
+        await db.deleteMilestone(id);
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.closeModal();
+      }
+    );
+  },
+
+  async ceoDeleteMilestone(id, title) {
+    await this.ceoDeleteWithPassword(`マイルストーン: ${title}`, async () => {
+      await db.deleteMilestone(id);
+    });
   },
 
   // ===== Design (担当者がKPI/Milestoneを設計) =====
