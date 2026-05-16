@@ -1153,47 +1153,135 @@ const App = {
 
     if (p.solution_type === 'kpi') {
       bodyHtml = `
-        <p class="text-muted mb-2" style="font-size:12px;">この課題を解決するための数値目標（KPI）を1つ以上設定します。</p>
-        <div id="kpiList"></div>
-        <button class="btn btn-secondary btn-sm" type="button" onclick="App.addKPIRow()">+ KPI 追加</button>
+        <div class="kpi-chart-info">
+          <div class="kpi-chart-info-title">📊 KPI ツリー設計（3階層必須）</div>
+          <div class="kpi-chart-info-desc">
+            <span class="kpi-level-tag kpi-level-1">Lv.1 メイン</span> <strong>1個</strong> →
+            <span class="kpi-level-tag kpi-level-2">Lv.2 中位</span> <strong>2〜3個</strong> →
+            <span class="kpi-level-tag kpi-level-3">Lv.3 実行</span> <strong>合計4〜9個</strong>
+          </div>
+        </div>
+
+        <!-- Level 1 -->
+        <div class="kpi-tree-section">
+          <div class="kpi-tree-section-title"><span class="kpi-level-tag kpi-level-1">Lv.1</span> メイン KPI（このプロジェクトの最終目標）</div>
+          <div id="kpiLevel1" class="kpi-tree-level1"></div>
+        </div>
+
+        <div class="kpi-tree-arrow">▼</div>
+
+        <!-- Level 2 -->
+        <div class="kpi-tree-section">
+          <div class="kpi-tree-section-title">
+            <span class="kpi-level-tag kpi-level-2">Lv.2</span> 中位 KPI（メインを分解：2〜3個）
+            <button type="button" class="btn btn-sm btn-secondary" onclick="App.addKpiLevel2()" style="margin-left:auto;">+ 中位KPI 追加</button>
+          </div>
+          <div id="kpiLevel2" class="kpi-tree-level2"></div>
+        </div>
+
+        <div class="kpi-tree-arrow">▼</div>
+
+        <!-- Level 3 (Lv.2 の配下) -->
+        <div class="kpi-tree-section">
+          <div class="kpi-tree-section-title">
+            <span class="kpi-level-tag kpi-level-3">Lv.3</span> 実行 KPI（中位ごとに子を設定：合計4〜9個）
+          </div>
+          <div id="kpiLevel3Container"></div>
+        </div>
       `;
     } else {
       bodyHtml = `
-        <p class="text-muted mb-2" style="font-size:12px;">課題達成までのチェックポイント（マイルストーン）を設定します。</p>
-        <div id="msList"></div>
-        <button class="btn btn-secondary btn-sm" type="button" onclick="App.addMilestoneRow()">+ マイルストーン 追加</button>
+        <div class="kpi-chart-info" style="background:linear-gradient(135deg,#fef3c7,#fde68a);">
+          <div class="kpi-chart-info-title">🎯 マイルストーン タイムライン（5フェーズ以上）</div>
+          <div class="kpi-chart-info-desc">
+            期限まで <strong>5フェーズ以上</strong> に分けて、達成までの道筋を描いてください。
+          </div>
+        </div>
+        <div id="msTimeline" class="ms-timeline"></div>
+        <div style="text-align:center;margin-top:10px;">
+          <button class="btn btn-primary btn-sm" type="button" onclick="App.addMilestoneRow()">+ フェーズ追加</button>
+        </div>
+        <div id="msCounter" style="text-align:center;margin-top:8px;font-size:12px;color:var(--gray-500);"></div>
       `;
     }
 
     this.showModal(`設計: ${p.title}`, bodyHtml, async () => {
       try {
         if (p.solution_type === 'kpi') {
-          const rows = document.querySelectorAll('#kpiList .kpi-row');
-          if (rows.length === 0) { this.toast('KPI を1つ以上追加してください', 'error'); return false; }
-          for (const row of rows) {
-            const name = row.querySelector('.k-name').value.trim();
-            const target = parseFloat(row.querySelector('.k-target').value);
-            if (!name || isNaN(target)) continue;
+          // Level 1
+          const lv1Row = document.querySelector('#kpiLevel1 .kpi-row');
+          if (!lv1Row || !lv1Row.querySelector('.k-name').value.trim() || isNaN(parseFloat(lv1Row.querySelector('.k-target').value))) {
+            this.toast('Lv.1 メインKPI が未入力です', 'error'); return false;
+          }
+          // Level 2
+          const lv2Rows = Array.from(document.querySelectorAll('#kpiLevel2 .kpi-row'));
+          const lv2Valid = lv2Rows.filter(r => r.querySelector('.k-name').value.trim() && !isNaN(parseFloat(r.querySelector('.k-target').value)));
+          if (lv2Valid.length < 2 || lv2Valid.length > 3) {
+            this.toast('Lv.2 中位KPI は 2〜3個 必要です', 'error'); return false;
+          }
+          // Level 3
+          const lv3AllRows = Array.from(document.querySelectorAll('.kpi-tree-level3 .kpi-row'));
+          const lv3Valid = lv3AllRows.filter(r => r.querySelector('.k-name').value.trim() && !isNaN(parseFloat(r.querySelector('.k-target').value)));
+          if (lv3Valid.length < 4 || lv3Valid.length > 9) {
+            this.toast('Lv.3 実行KPI は合計 4〜9個 必要です（現在 ' + lv3Valid.length + ' 個）', 'error'); return false;
+          }
+
+          // Save Level 1
+          const lv1Data = await db.createKPI({
+            project_id: projectId, level: 1, parent_kpi_id: null,
+            name: lv1Row.querySelector('.k-name').value.trim(),
+            unit: lv1Row.querySelector('.k-unit').value.trim(),
+            start_value: parseFloat(lv1Row.querySelector('.k-start').value) || 0,
+            target_value: parseFloat(lv1Row.querySelector('.k-target').value),
+            current_value: parseFloat(lv1Row.querySelector('.k-start').value) || 0,
+            target_date: lv1Row.querySelector('.k-date').value || null
+          });
+          const lv1Id = Array.isArray(lv1Data) ? lv1Data[0].id : lv1Data.id;
+
+          // Save Level 2 with parent = Lv.1
+          const lv2IdMap = {}; // localIdx -> dbId
+          for (let i = 0; i < lv2Valid.length; i++) {
+            const r = lv2Valid[i];
+            const localIdx = r.dataset.localIdx;
+            const created = await db.createKPI({
+              project_id: projectId, level: 2, parent_kpi_id: lv1Id,
+              name: r.querySelector('.k-name').value.trim(),
+              unit: r.querySelector('.k-unit').value.trim(),
+              start_value: parseFloat(r.querySelector('.k-start').value) || 0,
+              target_value: parseFloat(r.querySelector('.k-target').value),
+              current_value: parseFloat(r.querySelector('.k-start').value) || 0,
+              target_date: r.querySelector('.k-date').value || null
+            });
+            lv2IdMap[localIdx] = Array.isArray(created) ? created[0].id : created.id;
+          }
+
+          // Save Level 3 with parent = Lv.2
+          for (const r of lv3Valid) {
+            const parentLocalIdx = r.dataset.parentLocalIdx;
+            const parentId = lv2IdMap[parentLocalIdx];
+            if (!parentId) continue;
             await db.createKPI({
-              project_id: projectId,
-              name,
-              unit: row.querySelector('.k-unit').value.trim(),
-              start_value: parseFloat(row.querySelector('.k-start').value) || 0,
-              target_value: target,
-              current_value: parseFloat(row.querySelector('.k-start').value) || 0,
-              target_date: row.querySelector('.k-date').value || null
+              project_id: projectId, level: 3, parent_kpi_id: parentId,
+              name: r.querySelector('.k-name').value.trim(),
+              unit: r.querySelector('.k-unit').value.trim(),
+              start_value: parseFloat(r.querySelector('.k-start').value) || 0,
+              target_value: parseFloat(r.querySelector('.k-target').value),
+              current_value: parseFloat(r.querySelector('.k-start').value) || 0,
+              target_date: r.querySelector('.k-date').value || null
             });
           }
         } else {
-          const rows = document.querySelectorAll('#msList .ms-row');
-          if (rows.length === 0) { this.toast('マイルストーンを1つ以上追加', 'error'); return false; }
+          const rows = document.querySelectorAll('#msTimeline .ms-row');
+          const valid = Array.from(rows).filter(r => r.querySelector('.m-title').value.trim());
+          if (valid.length < 5) {
+            this.toast('マイルストーンは 5フェーズ以上 必要です（現在 ' + valid.length + ' 個）', 'error');
+            return false;
+          }
           let order = 0;
-          for (const row of rows) {
-            const title = row.querySelector('.m-title').value.trim();
-            if (!title) continue;
+          for (const row of valid) {
             await db.createMilestone({
               project_id: projectId,
-              title,
+              title: row.querySelector('.m-title').value.trim(),
               description: row.querySelector('.m-desc').value.trim(),
               due_date: row.querySelector('.m-date').value || null,
               display_order: order++
@@ -1224,70 +1312,142 @@ const App = {
       }
     });
 
-    // 初期1行追加
     setTimeout(() => {
-      if (p.solution_type === 'kpi') this.addKPIRow();
-      else this.addMilestoneRow();
+      if (p.solution_type === 'kpi') {
+        // Level 1（1個固定）
+        this.addKpiRow(document.getElementById('kpiLevel1'), 1, '');
+        // Level 2 初期2個
+        this.addKpiLevel2();
+        this.addKpiLevel2();
+      } else {
+        // Milestone 初期5フェーズ
+        for (let i = 0; i < 5; i++) this.addMilestoneRow();
+        this.updateMilestoneCounter();
+      }
     }, 50);
   },
 
-  addKPIRow() {
-    const list = document.getElementById('kpiList');
-    const idx = list.children.length;
+  // Level 1/2/3 共通カード生成
+  addKpiRow(container, level, parentLocalIdx) {
+    const placeholders = {
+      1: { name: '例: 売上 1億円', unit: '円' },
+      2: { name: '例: 新規顧客売上 50百万', unit: '円' },
+      3: { name: '例: Web経由 月10件', unit: '件' }
+    };
+    const ph = placeholders[level];
+    const localIdx = Math.random().toString(36).slice(2, 8);
     const row = document.createElement('div');
-    row.className = 'kpi-row';
-    row.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:8px;position:relative;';
+    row.className = `kpi-row kpi-row-lv${level}`;
+    row.dataset.localIdx = localIdx;
+    if (parentLocalIdx) row.dataset.parentLocalIdx = parentLocalIdx;
     row.innerHTML = `
-      <button type="button" onclick="this.parentElement.remove()" style="position:absolute;top:8px;right:8px;background:none;border:none;color:var(--danger);cursor:pointer;">×</button>
-      <div class="form-group" style="margin-bottom:8px;">
-        <label class="form-label">KPI名 *</label>
-        <input type="text" class="form-input k-name" placeholder="例: 新規来店者数">
-      </div>
-      <div class="form-row">
-        <div class="form-group" style="margin-bottom:8px;">
-          <label class="form-label">現在値</label>
-          <input type="number" class="form-input k-start" step="any" value="0">
+      ${level > 1 ? `<button type="button" class="kpi-remove" onclick="App.removeKpiRow(this, ${level})">×</button>` : ''}
+      <div class="kpi-row-fields">
+        <input type="text" class="form-input k-name" placeholder="${ph.name}">
+        <div class="kpi-row-numeric">
+          <input type="number" class="form-input k-start" step="any" placeholder="現在値" value="0">
+          <span class="kpi-arrow-small">→</span>
+          <input type="number" class="form-input k-target" step="any" placeholder="目標値 *">
+          <input type="text" class="form-input k-unit" placeholder="${ph.unit}">
         </div>
-        <div class="form-group" style="margin-bottom:8px;">
-          <label class="form-label">目標値 *</label>
-          <input type="number" class="form-input k-target" step="any">
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label">単位</label>
-          <input type="text" class="form-input k-unit" placeholder="例: 人, %, 円">
-        </div>
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label">期限</label>
-          <input type="date" class="form-input k-date">
-        </div>
+        <input type="date" class="form-input k-date" title="期限">
       </div>
     `;
-    list.appendChild(row);
+    container.appendChild(row);
+    return row;
+  },
+
+  addKpiLevel2() {
+    const lv2Container = document.getElementById('kpiLevel2');
+    const lv2Rows = lv2Container.querySelectorAll('.kpi-row');
+    if (lv2Rows.length >= 3) {
+      this.toast('Lv.2 は最大3個まで', 'warning');
+      return;
+    }
+    const newRow = this.addKpiRow(lv2Container, 2, '');
+    // 対応する Lv.3 コンテナを作る
+    const lv3wrap = document.createElement('div');
+    lv3wrap.className = 'kpi-tree-level3-group';
+    lv3wrap.dataset.parentLocalIdx = newRow.dataset.localIdx;
+    lv3wrap.innerHTML = `
+      <div class="kpi-tree-level3-header">
+        <span class="kpi-tree-level3-label">└ <span class="lv3-parent-name">中位KPI ${lv2Rows.length + 1}</span> の実行KPI</span>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="App.addKpiLevel3('${newRow.dataset.localIdx}')">+ 実行KPI 追加</button>
+      </div>
+      <div class="kpi-tree-level3" data-parent-local-idx="${newRow.dataset.localIdx}"></div>
+    `;
+    document.getElementById('kpiLevel3Container').appendChild(lv3wrap);
+
+    // 親 Lv2 の name 入力を Lv3 ヘッダーに同期
+    newRow.querySelector('.k-name').addEventListener('input', (e) => {
+      const label = lv3wrap.querySelector('.lv3-parent-name');
+      label.textContent = e.target.value.trim() || `中位KPI ${lv2Rows.length + 1}`;
+    });
+
+    // 初期で Lv.3 を 2 個追加
+    this.addKpiLevel3(newRow.dataset.localIdx);
+    this.addKpiLevel3(newRow.dataset.localIdx);
+  },
+
+  addKpiLevel3(parentLocalIdx) {
+    const allLv3 = document.querySelectorAll('.kpi-tree-level3 .kpi-row');
+    if (allLv3.length >= 9) {
+      this.toast('Lv.3 は合計9個まで', 'warning');
+      return;
+    }
+    const container = document.querySelector(`.kpi-tree-level3[data-parent-local-idx="${parentLocalIdx}"]`);
+    if (!container) return;
+    this.addKpiRow(container, 3, parentLocalIdx);
+  },
+
+  removeKpiRow(btn, level) {
+    const row = btn.closest('.kpi-row');
+    if (level === 2) {
+      // Lv.2 削除時は配下の Lv.3 グループも削除
+      const localIdx = row.dataset.localIdx;
+      const lv3group = document.querySelector(`.kpi-tree-level3-group[data-parent-local-idx="${localIdx}"]`);
+      if (lv3group) lv3group.remove();
+    }
+    row.remove();
   },
 
   addMilestoneRow() {
-    const list = document.getElementById('msList');
+    const list = document.getElementById('msTimeline');
+    const idx = list.children.length + 1;
     const row = document.createElement('div');
-    row.className = 'ms-row';
-    row.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:8px;position:relative;';
+    row.className = 'ms-row ms-phase';
     row.innerHTML = `
-      <button type="button" onclick="this.parentElement.remove()" style="position:absolute;top:8px;right:8px;background:none;border:none;color:var(--danger);cursor:pointer;">×</button>
-      <div class="form-group" style="margin-bottom:8px;">
-        <label class="form-label">マイルストーン *</label>
-        <input type="text" class="form-input m-title" placeholder="例: ヒアリング完了">
-      </div>
-      <div class="form-group" style="margin-bottom:8px;">
-        <label class="form-label">詳細</label>
-        <input type="text" class="form-input m-desc" placeholder="達成条件">
-      </div>
-      <div class="form-group" style="margin-bottom:0;">
-        <label class="form-label">期限</label>
-        <input type="date" class="form-input m-date">
+      <div class="ms-phase-num">${idx}</div>
+      <div class="ms-phase-body">
+        <button type="button" class="ms-phase-remove" onclick="this.closest('.ms-phase').remove(); App.refreshMilestoneNumbers();">×</button>
+        <input type="text" class="form-input m-title" placeholder="フェーズ${idx} のタイトル *">
+        <input type="text" class="form-input m-desc" placeholder="達成条件・成果物">
+        <input type="date" class="form-input m-date" title="期限">
       </div>
     `;
     list.appendChild(row);
+    this.updateMilestoneCounter();
+  },
+
+  refreshMilestoneNumbers() {
+    document.querySelectorAll('#msTimeline .ms-phase').forEach((el, i) => {
+      el.querySelector('.ms-phase-num').textContent = i + 1;
+      const titleInput = el.querySelector('.m-title');
+      if (titleInput.placeholder.startsWith('フェーズ')) {
+        titleInput.placeholder = `フェーズ${i + 1} のタイトル *`;
+      }
+    });
+    this.updateMilestoneCounter();
+  },
+
+  updateMilestoneCounter() {
+    const count = document.querySelectorAll('#msTimeline .ms-phase').length;
+    const el = document.getElementById('msCounter');
+    if (el) {
+      el.innerHTML = count >= 5
+        ? `<span style="color:var(--success);">✓ ${count} フェーズ（5以上 OK）</span>`
+        : `<span style="color:var(--danger);">⚠️ ${count} フェーズ（最低 5 必要、あと ${5 - count} 個）</span>`;
+    }
   },
 
   // ===== Approval (CEO 承認) =====

@@ -661,6 +661,288 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* ===== KPI Tree Design ===== */
+.kpi-chart-info {
+  background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  border-left: 5px solid var(--primary);
+}
+
+.kpi-chart-info-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin-bottom: 6px;
+}
+
+.kpi-chart-info-desc {
+  font-size: 12px;
+  color: var(--gray-700);
+  line-height: 1.7;
+}
+
+.kpi-level-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  margin: 0 2px;
+}
+
+.kpi-level-1 {
+  background: linear-gradient(135deg, #2563eb, #1e40af);
+  color: white;
+}
+
+.kpi-level-2 {
+  background: linear-gradient(135deg, #10b981, #047857);
+  color: white;
+}
+
+.kpi-level-3 {
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  color: white;
+}
+
+.kpi-tree-section {
+  margin-bottom: 4px;
+}
+
+.kpi-tree-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-800);
+  margin-bottom: 10px;
+}
+
+.kpi-tree-arrow {
+  text-align: center;
+  font-size: 22px;
+  color: var(--gray-400);
+  line-height: 1;
+  margin: 8px 0;
+}
+
+.kpi-tree-level1 {
+  display: flex;
+  justify-content: center;
+}
+
+.kpi-tree-level1 .kpi-row {
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border: 2px solid var(--primary);
+  border-radius: 14px;
+  padding: 14px 18px;
+  min-width: 320px;
+  max-width: 520px;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
+}
+
+.kpi-tree-level2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+  max-width: 100%;
+}
+
+.kpi-tree-level2 .kpi-row {
+  background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+  border: 2px solid #10b981;
+  border-radius: 12px;
+  padding: 12px 14px;
+  position: relative;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.12);
+}
+
+.kpi-tree-level3-group {
+  background: rgba(139, 92, 246, 0.05);
+  border-left: 3px solid #8b5cf6;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.kpi-tree-level3-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6d28d9;
+}
+
+.kpi-tree-level3-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.kpi-tree-level3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.kpi-tree-level3 .kpi-row {
+  background: white;
+  border: 1.5px solid #c4b5fd;
+  border-radius: 8px;
+  padding: 10px 12px;
+  position: relative;
+  box-shadow: 0 1px 4px rgba(139, 92, 246, 0.08);
+}
+
+.kpi-row .k-name {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.kpi-row-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kpi-row-numeric {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto;
+  gap: 4px;
+  align-items: center;
+}
+
+.kpi-row-numeric input[type="number"] {
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.kpi-row-numeric input.k-unit {
+  width: 50px;
+  font-size: 11px;
+  padding: 6px 8px;
+}
+
+.kpi-arrow-small {
+  color: var(--gray-400);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.kpi-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.1);
+  border: none;
+  color: var(--danger);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.kpi-remove:hover {
+  background: var(--danger);
+  color: white;
+}
+
+/* ===== Milestone Timeline ===== */
+.ms-timeline {
+  position: relative;
+  padding: 14px 0 14px 0;
+  margin-top: 10px;
+}
+
+.ms-timeline::before {
+  content: '';
+  position: absolute;
+  top: 32px;
+  bottom: 32px;
+  left: 22px;
+  width: 3px;
+  background: linear-gradient(180deg, #f59e0b 0%, #fbbf24 50%, #fde68a 100%);
+  border-radius: 2px;
+}
+
+.ms-phase {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 12px;
+  position: relative;
+  align-items: flex-start;
+}
+
+.ms-phase-num {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  font-weight: 700;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  z-index: 1;
+  box-shadow: 0 4px 10px rgba(245, 158, 11, 0.3);
+  position: relative;
+}
+
+.ms-phase-body {
+  flex: 1;
+  background: linear-gradient(135deg, #fffbeb, #fef3c7);
+  border: 1.5px solid #fbbf24;
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.12);
+}
+
+.ms-phase-body .m-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.ms-phase-remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.1);
+  border: none;
+  color: var(--danger);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.ms-phase-remove:hover {
+  background: var(--danger);
+  color: white;
+}
+
 /* ===== Deadline Warning (点滅) ===== */
 @keyframes deadline-blink {
   0%, 100% {
