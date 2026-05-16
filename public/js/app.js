@@ -1374,16 +1374,23 @@ const App = {
     const container = document.getElementById('logsContent');
     const isCEO = auth.isCEO();
 
-    // CEO は全員の日報、それ以外は自分のだけ
-    const reports = isCEO
+    // CEO は全員の「提出済み」日報、それ以外は自分の全て（下書き含む）
+    const allReports = isCEO
       ? await db.getDailyReports()
       : await db.getDailyReports({ staff_id: auth.currentUser.id });
+    const reports = isCEO
+      ? allReports.filter(r => (r.status || 'submitted') === 'submitted')
+      : allReports;
 
     // 今日の日報未提出スタッフ（CEO のみ）
     let html = '';
     if (isCEO) {
       const today = new Date().toISOString().slice(0, 10);
-      const submittedToday = new Set(reports.filter(r => r.report_date === today).map(r => r.staff_id));
+      const submittedToday = new Set(
+        allReports
+          .filter(r => r.report_date === today && (r.status || 'submitted') === 'submitted')
+          .map(r => r.staff_id)
+      );
       const notSubmitted = this.state.staff.filter(s =>
         s.is_active && s.role !== 'ceo' && !submittedToday.has(s.id)
       );
@@ -1420,14 +1427,25 @@ const App = {
     const completedTasks = r.completed_tasks || [];
     const routines = r.routines || [];
 
-    return `<div class="card">
+    const status = r.status || 'submitted';
+    const isDraft = status === 'draft';
+
+    return `<div class="card" style="${isDraft ? 'border-left:4px solid var(--warning);background:#fffbeb;' : ''}">
       <div class="card-header">
         <div>
-          <div class="card-title">${r.report_date} の日報</div>
-          <div class="text-muted" style="font-size:11px;margin-top:2px;">作成: ${s?.name || '-'} (${this.roleLabel(s?.role)})</div>
+          <div class="card-title">
+            ${r.report_date} の日報
+            ${isDraft
+              ? '<span class="badge badge-warning" style="margin-left:8px;">💾 下書き</span>'
+              : '<span class="badge badge-success" style="margin-left:8px;">✅ 提出済</span>'}
+          </div>
+          <div class="text-muted" style="font-size:11px;margin-top:2px;">
+            作成: ${s?.name || '-'} (${this.roleLabel(s?.role)})
+            ${r.submitted_at ? ` ・ 提出 ${this.formatDate(r.submitted_at)}` : ''}
+          </div>
         </div>
         <div class="flex gap-1">
-          ${isMine ? `<button class="btn btn-sm btn-secondary" onclick="App.openReportModal('${r.id}')">編集</button>` : ''}
+          ${isMine ? `<button class="btn btn-sm btn-secondary" onclick="App.openReportModal('${r.id}')">${isDraft ? '続きを書く' : '編集'}</button>` : ''}
           ${isMine || auth.isCEO() ? `<button class="btn btn-sm btn-danger" onclick="App.deleteReport('${r.id}')">削除</button>` : ''}
         </div>
       </div>
@@ -1597,7 +1615,8 @@ const App = {
       </div>
     `;
 
-    this.showModal(existing ? '日報を編集' : '本日の日報を作成', bodyHtml, async () => {
+    // 日報を「draft / submitted」で保存する共通処理
+    const collectAndSave = async (targetStatus) => {
       // プロジェクト進捗を収集
       const projects = [];
       document.querySelectorAll('.r_project_row').forEach(row => {
@@ -1607,7 +1626,6 @@ const App = {
         if (pid && action) projects.push({ project_id: pid, action, progress });
       });
 
-      // 課題を収集
       const issues = [];
       document.querySelectorAll('.r_issue_row').forEach(row => {
         const title = row.querySelector('.r_i_title').value.trim();
@@ -1615,10 +1633,8 @@ const App = {
         if (title) issues.push({ title, description });
       });
 
-      // 完了タスク
       const completed_tasks = Array.from(document.querySelectorAll('.r_task:checked')).map(cb => cb.value);
 
-      // ルーティン
       const routines = [];
       document.querySelectorAll('.r_routine_done:checked').forEach(cb => {
         const id = cb.dataset.id;
@@ -1639,8 +1655,18 @@ const App = {
         completed_tasks,
         routines,
         tomorrow_plan: document.getElementById('r_tomorrow').value.trim(),
-        comment: document.getElementById('r_comment').value.trim()
+        comment: document.getElementById('r_comment').value.trim(),
+        status: targetStatus,
+        submitted_at: targetStatus === 'submitted' ? new Date().toISOString() : null
       };
+
+      // submitted の場合は必須項目チェック
+      if (targetStatus === 'submitted') {
+        if (projects.length === 0 && completed_tasks.length === 0 && routines.length === 0) {
+          this.toast('提出には プロジェクト進捗 / タスク完了 / ルーティン のいずれかが必要です', 'error');
+          return false;
+        }
+      }
 
       try {
         if (existing) {
@@ -1649,57 +1675,77 @@ const App = {
           await db.createDailyReport(data);
         }
 
-        // タスク指示を完了状態に更新
-        for (const tid of completed_tasks) {
-          const task = this.state.taskInstructions.find(t => t.id === tid);
-          if (task && task.status !== 'completed') {
-            await db.updateTaskInstruction(tid, {
-              status: 'completed',
-              completed_at: new Date().toISOString()
+        if (targetStatus === 'submitted') {
+          // タスク指示を完了状態に更新
+          for (const tid of completed_tasks) {
+            const task = this.state.taskInstructions.find(t => t.id === tid);
+            if (task && task.status !== 'completed') {
+              await db.updateTaskInstruction(tid, {
+                status: 'completed',
+                completed_at: new Date().toISOString()
+              });
+            }
+          }
+
+          // ルーティンログを登録（submit 時のみ）
+          for (const rt of routines) {
+            await db.createRoutineLog({
+              routine_task_id: rt.routine_task_id,
+              staff_id: auth.currentUser.id,
+              log_date: data.report_date,
+              content: rt.has_issue ? `[問題あり] ${rt.issue_note}` : '完了'
+            }).catch(() => {});
+          }
+
+          // プロジェクト進捗を更新
+          for (const p of projects) {
+            await db.updateProject(p.project_id, {
+              progress_percent: p.progress,
+              status: p.progress >= 100 ? 'completed' : 'active'
             });
           }
-        }
 
-        // ルーティンログを登録
-        for (const rt of routines) {
-          await db.createRoutineLog({
-            routine_task_id: rt.routine_task_id,
-            staff_id: auth.currentUser.id,
-            log_date: data.report_date,
-            content: rt.has_issue ? `[問題あり] ${rt.issue_note}` : '完了'
-          }).catch(() => {});
-        }
-
-        // プロジェクト進捗を更新
-        for (const p of projects) {
-          await db.updateProject(p.project_id, {
-            progress_percent: p.progress,
-            status: p.progress >= 100 ? 'completed' : 'active'
-          });
-        }
-
-        // 課題を新規プロジェクトとして登録（オプション、今回はスキップ）
-
-        // CEO に通知
-        const ceos = this.state.staff.filter(s => s.role === 'ceo');
-        for (const ceo of ceos) {
-          await db.createNotification({
-            recipient_id: ceo.id,
-            type: 'daily_log_added',
-            title: `${auth.currentUser.name} の日報`,
-            message: `${data.report_date} の日報が提出されました`
-          }).catch(() => {});
+          // CEO に通知
+          const ceos = this.state.staff.filter(s => s.role === 'ceo');
+          for (const ceo of ceos) {
+            await db.createNotification({
+              recipient_id: ceo.id,
+              type: 'daily_log_added',
+              title: `${auth.currentUser.name} の日報`,
+              message: `${data.report_date} の日報が提出されました`
+            }).catch(() => {});
+          }
         }
 
         await this.loadAllData();
         this.renderCurrentPage();
-        this.toast(existing ? '日報を更新しました' : '日報を提出しました');
+        this.toast(targetStatus === 'submitted'
+          ? '日報を提出しました（CEO に通知）'
+          : '一時保存しました（あとで編集・提出できます）');
         return true;
       } catch (e) {
         this.toast('エラー: ' + e.message, 'error');
         return false;
       }
-    });
+    };
+
+    this.showModal(
+      existing
+        ? (existing.status === 'submitted' ? '日報を編集（提出済み）' : '日報を編集（下書き）')
+        : '本日の日報を作成',
+      bodyHtml,
+      () => collectAndSave('submitted'),
+      false,
+      {
+        submitLabel: '✅ 確定提出',
+        submitClass: 'btn-primary',
+        extraButton: {
+          label: '💾 一時保存',
+          class: 'btn-warning',
+          onClick: () => collectAndSave('draft')
+        }
+      }
+    );
 
     // 既存のプロジェクト/課題を復元、または初期1行
     setTimeout(() => {
@@ -2000,8 +2046,12 @@ const App = {
   },
 
   // ===== Modal Helper =====
-  showModal(title, bodyHtml, onSubmit, hideSubmit = false) {
+  showModal(title, bodyHtml, onSubmit, hideSubmit = false, options = {}) {
     const container = document.getElementById('modalContainer');
+    const submitLabel = options.submitLabel || '保存';
+    const submitClass = options.submitClass || 'btn-primary';
+    const extraButton = options.extraButton; // {label, class, onClick}
+
     container.innerHTML = `
       <div class="modal-overlay" id="modalOverlay">
         <div class="modal" onclick="event.stopPropagation()">
@@ -2012,7 +2062,8 @@ const App = {
           <div class="modal-body">${bodyHtml}</div>
           <div class="modal-actions">
             <button class="btn btn-secondary" onclick="App.closeModal()">${hideSubmit ? '閉じる' : 'キャンセル'}</button>
-            ${!hideSubmit ? '<button class="btn btn-primary" id="modalSubmit">保存</button>' : ''}
+            ${extraButton ? `<button class="btn ${extraButton.class || 'btn-warning'}" id="modalExtra">${extraButton.label}</button>` : ''}
+            ${!hideSubmit ? `<button class="btn ${submitClass}" id="modalSubmit">${submitLabel}</button>` : ''}
           </div>
         </div>
       </div>
@@ -2023,6 +2074,12 @@ const App = {
     if (onSubmit) {
       document.getElementById('modalSubmit').addEventListener('click', async () => {
         const result = await onSubmit();
+        if (result !== false) this.closeModal();
+      });
+    }
+    if (extraButton && extraButton.onClick) {
+      document.getElementById('modalExtra').addEventListener('click', async () => {
+        const result = await extraButton.onClick();
         if (result !== false) this.closeModal();
       });
     }
