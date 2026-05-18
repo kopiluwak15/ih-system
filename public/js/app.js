@@ -41,7 +41,7 @@ const App = {
       this.state.projects = projects.filter(p => !p.archived);
       this.state.staff = staff;
       this.state.taskInstructions = taskInstructions.filter(t => !t.archived);
-      this.state.routineTasks = routineTasks;
+      this.state.routineTasks = routineTasks.filter(r => !r.archived);
 
       if (auth.currentUser?.id) {
         this.state.notifications = await db.getNotifications(auth.currentUser.id);
@@ -424,7 +424,7 @@ const App = {
   },
 
   async renderRoutineList(cycle, tasks) {
-    const filtered = tasks.filter(t => t.cycle === cycle && t.is_active);
+    const filtered = tasks.filter(t => t.cycle === cycle && t.is_active && !t.archived);
     const container = document.getElementById('routineList');
     if (filtered.length === 0) {
       const label = { daily: '日次', weekly: '週次', monthly: '月次' }[cycle];
@@ -454,8 +454,9 @@ const App = {
         ${t.description ? `<div class="mb-2" style="font-size:12px;color:var(--gray-700);">${t.description}</div>` : ''}
         <div class="flex gap-1 mb-2">
           ${(t.assigned_to === auth.currentUser.id || auth.isCEO()) ? `<button class="btn btn-sm btn-primary" onclick="App.openRoutineLogModal('${t.id}')">+ ログ登録</button>` : ''}
+          ${(t.assigned_to === auth.currentUser.id || auth.isCEO()) ? `<button class="btn btn-sm btn-success" onclick="App.archiveRoutineTask('${t.id}', '${t.title.replace(/'/g, "\\'")}');">📦 完了/アーカイブ</button>` : ''}
           ${auth.isCEO() ? `<button class="btn btn-sm btn-secondary" onclick="App.openRoutineTaskModal('${t.id}')">編集</button>` : ''}
-          ${auth.isCEO() ? `<button class="btn btn-sm btn-danger" onclick="App.deleteRoutineTask('${t.id}')">削除</button>` : ''}
+          ${auth.isCEO() ? `<button class="btn btn-sm btn-danger" onclick="App.deleteRoutineTask('${t.id}')">🗑 削除</button>` : ''}
         </div>
         ${logs.length > 0 ? `
           <details>
@@ -572,17 +573,33 @@ const App = {
     });
   },
 
+  archiveRoutineTask(id, title) {
+    this.openCompletionModal('routine', id, title,
+      async (note) => {
+        await db.updateRoutineTask(id, {
+          archived: true,
+          archived_at: new Date().toISOString(),
+          completion_note: note,
+          is_active: false
+        });
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.closeModal();
+      },
+      async () => {
+        await db.deleteRoutineTask(id);
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.closeModal();
+      }
+    );
+  },
+
   async deleteRoutineTask(id) {
     const r = this.state.routineTasks.find(x => x.id === id);
-    if (!confirm(`「${r.title}」を削除しますか？\n関連ログも全て削除されます。`)) return;
-    try {
+    await this.ceoDeleteWithPassword(`ルーティン: ${r?.title || ''}`, async () => {
       await db.deleteRoutineTask(id);
-      await this.loadAllData();
-      this.renderCurrentPage();
-      this.toast('削除しました');
-    } catch (e) {
-      this.toast('エラー: ' + e.message, 'error');
-    }
+    });
   },
 
   // ===== Dashboard =====
