@@ -40,36 +40,104 @@ body {
 .login-screen {
   position: fixed;
   inset: 0;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: radial-gradient(circle at 20% 30%, #1e3a8a 0%, #0f172a 45%, #020617 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  overflow: hidden;
+}
+
+/* 背景に光るドット */
+.login-screen::before,
+.login-screen::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.login-screen::before {
+  width: 380px;
+  height: 380px;
+  background: #3b82f6;
+  top: -120px;
+  right: -100px;
+}
+
+.login-screen::after {
+  width: 320px;
+  height: 320px;
+  background: #8b5cf6;
+  bottom: -100px;
+  left: -80px;
 }
 
 .login-card {
-  background: white;
-  border-radius: 16px;
-  padding: 48px 40px;
-  box-shadow: var(--shadow-lg);
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: blur(20px);
+  border-radius: 18px;
+  padding: 56px 44px 40px;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35), 0 8px 20px rgba(0, 0, 0, 0.2);
   width: 100%;
-  max-width: 420px;
+  max-width: 440px;
+  position: relative;
+  z-index: 1;
+  border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
 .login-logo {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 36px;
+  position: relative;
+}
+
+.login-logo .brand-line {
+  width: 56px;
+  height: 3px;
+  background: linear-gradient(90deg, #2563eb, #8b5cf6);
+  border-radius: 2px;
+  margin: 0 auto 18px;
 }
 
 .login-logo h1 {
-  font-size: 24px;
+  font-size: 22px;
+  font-weight: 800;
   color: var(--gray-900);
-  margin-bottom: 4px;
+  letter-spacing: 0.12em;
+  margin: 0 0 6px;
+  background: linear-gradient(135deg, #1e293b 0%, #3b82f6 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  line-height: 1.2;
 }
 
-.login-logo p {
+.login-logo .brand-tagline {
   color: var(--gray-500);
-  font-size: 13px;
+  font-size: 11px;
+  letter-spacing: 0.35em;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: 44px 26px 32px;
+    border-radius: 16px;
+    max-width: 92%;
+  }
+  .login-logo h1 {
+    font-size: 18px;
+    letter-spacing: 0.08em;
+  }
+  .login-logo .brand-tagline {
+    font-size: 10px;
+    letter-spacing: 0.28em;
+  }
 }
 
 /* ===== App Layout ===== */
