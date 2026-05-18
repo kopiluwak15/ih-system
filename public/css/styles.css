@@ -1318,6 +1318,242 @@ body {
   flex-direction: column;
 }
 
+/* ===== Mobile Header & Menu ===== */
+.mobile-header {
+  display: none;
+  align-items: center;
+  gap: 12px;
+  background: var(--gray-900);
+  color: white;
+  padding: 12px 16px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.mobile-header-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.mobile-menu-btn {
+  background: rgba(255,255,255,0.1);
+  border: none;
+  color: white;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-menu-btn:active {
+  background: rgba(255,255,255,0.2);
+}
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 998;
+}
+
+.sidebar-overlay.open {
+  display: block;
+}
+
+/* ===== Responsive (Mobile) ===== */
+@media (max-width: 768px) {
+  body {
+    font-size: 15px;
+  }
+
+  .app {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-header {
+    display: flex;
+  }
+
+  .sidebar {
+    position: fixed;
+    left: -270px;
+    top: 0;
+    width: 260px;
+    height: 100vh;
+    z-index: 999;
+    transition: left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 4px 0 20px rgba(0,0,0,0.2);
+  }
+
+  .sidebar.open {
+    left: 0;
+  }
+
+  .main {
+    padding: 12px 14px 80px;
+    overflow-y: auto;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .page-header .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .page-title {
+    font-size: 17px;
+  }
+
+  .page-subtitle {
+    font-size: 12px;
+  }
+
+  /* スマホはタッチターゲット拡大 */
+  .btn {
+    padding: 12px 18px;
+    font-size: 14px;
+    min-height: 44px;
+  }
+
+  .btn-sm {
+    padding: 9px 14px;
+    font-size: 13px;
+    min-height: 38px;
+  }
+
+  /* Form */
+  .form-input,
+  .form-select,
+  .form-textarea {
+    font-size: 16px; /* iOS Safari ズーム防止 */
+    padding: 12px 14px;
+  }
+
+  /* Grid を1列に */
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .stat-card {
+    padding: 10px 12px;
+  }
+
+  .stat-value {
+    font-size: 18px;
+  }
+
+  .bu-grid {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  /* テーブルを縦方向スクロール（横もOK） */
+  .table {
+    font-size: 13px;
+  }
+
+  .table th, .table td {
+    padding: 10px 8px;
+    font-size: 12px;
+  }
+
+  /* Modal */
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: 92vh;
+    border-radius: 16px 16px 0 0;
+    margin: 0;
+    padding: 18px 16px 24px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .modal-actions {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+
+  .modal-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* タブを横スクロール可能に */
+  .settings-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .settings-tab, .routine-tab {
+    flex-shrink: 0;
+    padding: 12px 16px;
+    font-size: 13px;
+  }
+
+  /* KPI tree */
+  .kpi-tree-level1 .kpi-row {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .kpi-tree-level2,
+  .kpi-tree-level3 {
+    grid-template-columns: 1fr;
+  }
+
+  .kpi-row-numeric {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .kpi-row-numeric .kpi-arrow-small {
+    display: none;
+  }
+
+  /* Milestone */
+  .ms-phase {
+    gap: 10px;
+  }
+
+  .ms-phase-num {
+    width: 38px;
+    height: 38px;
+    font-size: 15px;
+  }
+
+  /* Toast */
+  .toast {
+    left: 10px;
+    right: 10px;
+    top: 10px;
+    max-width: 100%;
+  }
+}
+
 /* ===== Utility ===== */
 .text-muted { color: var(--gray-500); }
 .text-success { color: var(--success); }

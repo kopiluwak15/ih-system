@@ -21,9 +21,31 @@ const App = {
     this.setupNavigation();
     this.setupButtons();
     this.setupSettingsTabs();
+    this.setupMobileMenu();
     await this.loadAllData();
     this.renderCurrentPage();
     this.startNotificationPolling();
+  },
+
+  setupMobileMenu() {
+    const btn = document.getElementById('mobileMenuBtn');
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    const closeSidebar = () => {
+      sidebar?.classList.remove('open');
+      overlay?.classList.remove('open');
+    };
+    btn?.addEventListener('click', () => {
+      sidebar?.classList.toggle('open');
+      overlay?.classList.toggle('open');
+    });
+    overlay?.addEventListener('click', closeSidebar);
+    // ナビ項目クリック後に閉じる
+    document.querySelectorAll('.nav-item').forEach(item => {
+      item.addEventListener('click', () => {
+        if (window.innerWidth < 769) closeSidebar();
+      });
+    });
   },
 
   async loadAllData() {
@@ -1109,8 +1131,9 @@ const App = {
 
   // 共通の完了報告モーダル（破棄 or アーカイブ）
   openCompletionModal(entityType, entityId, entityTitle, onArchive, onDiscard) {
+    const isCEO = auth.isCEO();
     this.showModal(`完了報告: ${entityTitle}`, `
-      <p class="text-muted mb-2" style="font-size:12px;">完了内容を記録します。「破棄」は履歴に残さず消去、「アーカイブ」は履歴として保存します。</p>
+      <p class="text-muted mb-2" style="font-size:12px;">完了内容を記録します。${isCEO ? '「破棄」は履歴に残さず消去、「アーカイブ」は履歴として保存します。' : '「アーカイブ」で履歴として保存します。'}</p>
       <div class="form-group">
         <label class="form-label">完了報告 *</label>
         <textarea id="comp_note" class="form-textarea" rows="4" placeholder="達成した内容、得られた成果、学んだことなど"></textarea>
@@ -1132,11 +1155,13 @@ const App = {
     }, false, {
       submitLabel: '📦 アーカイブ（保存）',
       submitClass: 'btn-success',
-      extraButton: {
-        label: '🗑 破棄',
+      extraButton: isCEO ? {
+        label: '🗑 破棄（管理者専用）',
         class: 'btn-danger',
         onClick: async () => {
-          if (!confirm('完了内容を履歴に残さず破棄します。本当によろしいですか？')) return false;
+          // 破棄もパスワード認証
+          const pwdConfirm = await this.promptPassword('履歴に残さず破棄します。管理者パスワードを入力してください。');
+          if (!pwdConfirm) return false;
           try {
             await onDiscard();
             this.toast('破棄しました');
@@ -1146,18 +1171,18 @@ const App = {
             return false;
           }
         }
-      }
+      } : null
     });
   },
 
-  // CEO 用パスワード認証付き削除
+  // CEO 用パスワード認証付き削除（マスク表示）
   async ceoDeleteWithPassword(entityName, deleteFunc) {
-    const pwd = prompt(`「${entityName}」を完全削除します。\n\nCEO パスワードを入力してください：`);
-    if (pwd === null) return;
-    if (pwd !== this.CEO_DELETE_PASSWORD) {
-      this.toast('パスワードが正しくありません', 'error');
+    if (!auth.isCEO()) {
+      this.toast('削除は管理者のみ実行できます', 'error');
       return;
     }
+    const ok = await this.promptPassword(`「${entityName}」を完全削除します。<br>管理者パスワードを入力してください。`);
+    if (!ok) return;
     try {
       await deleteFunc();
       await this.loadAllData();
@@ -1166,6 +1191,65 @@ const App = {
     } catch (e) {
       this.toast('エラー: ' + e.message, 'error');
     }
+  },
+
+  // パスワード入力モーダル（マスク表示）
+  promptPassword(message) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.style.zIndex = '10001';
+      overlay.innerHTML = `
+        <div class="modal" style="max-width:420px;">
+          <div class="modal-header">
+            <div class="modal-title">🔒 管理者認証</div>
+            <button class="modal-close" type="button" aria-label="閉じる">×</button>
+          </div>
+          <div class="modal-body">
+            <p style="font-size:13px;color:var(--gray-700);margin-bottom:14px;line-height:1.6;">${message}</p>
+            <div class="form-group">
+              <label class="form-label">パスワード</label>
+              <input type="password" id="pwd_input" class="form-input" autocomplete="current-password" inputmode="text" style="font-size:16px;padding:12px 14px;letter-spacing:3px;">
+              <div id="pwd_error" style="display:none;color:var(--danger);font-size:12px;margin-top:6px;">パスワードが正しくありません</div>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" type="button" data-action="cancel">キャンセル</button>
+            <button class="btn btn-danger" type="button" data-action="confirm">🔓 確認</button>
+          </div>
+        </div>
+      `;
+      document.getElementById('modalContainer').appendChild(overlay);
+
+      const input = overlay.querySelector('#pwd_input');
+      const errorEl = overlay.querySelector('#pwd_error');
+      input.focus();
+
+      const cleanup = (result) => {
+        overlay.remove();
+        resolve(result);
+      };
+
+      const tryConfirm = () => {
+        if (input.value === this.CEO_DELETE_PASSWORD) {
+          cleanup(true);
+        } else {
+          errorEl.style.display = 'block';
+          input.value = '';
+          input.focus();
+        }
+      };
+
+      overlay.querySelector('[data-action="confirm"]').addEventListener('click', tryConfirm);
+      overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => cleanup(false));
+      overlay.querySelector('.modal-close').addEventListener('click', () => cleanup(false));
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); tryConfirm(); }
+      });
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) cleanup(false);
+      });
+    });
   },
 
   // ===== KPI ツリーチャート（読み取り専用） =====
