@@ -1872,8 +1872,16 @@ const App = {
       ? allReports.filter(r => (r.status || 'submitted') === 'submitted')
       : allReports;
 
-    // 今日の日報未提出スタッフ（CEO のみ）
+    // 表示中の年月 state
+    if (!this.state.calendarYM) {
+      const t = new Date();
+      this.state.calendarYM = { year: t.getFullYear(), month: t.getMonth() };
+    }
+    const { year, month } = this.state.calendarYM;
+
     let html = '';
+
+    // 未提出スタッフ警告（CEO のみ）
     if (isCEO) {
       const today = new Date().toISOString().slice(0, 10);
       const submittedToday = new Set(
@@ -1885,7 +1893,7 @@ const App = {
         s.is_active && s.role !== 'ceo' && !submittedToday.has(s.id)
       );
       if (notSubmitted.length > 0) {
-        html += `<div class="card" style="background:#fef3c7;border-color:#fbbf24;">
+        html += `<div class="card" style="background:#fef3c7;border-color:#fbbf24;margin-bottom:14px;">
           <div class="card-header">
             <div class="card-title" style="color:#92400e;">⚠️ 今日の日報未提出: ${notSubmitted.length}名</div>
           </div>
@@ -1896,17 +1904,119 @@ const App = {
       }
     }
 
-    // 日報一覧
-    if (reports.length === 0) {
-      html += this.emptyState('📝', '日報なし',
-        isCEO ? 'マネージャー/スタッフの日報が表示されます' : '右上の「+ 今日の日報を書く」から作成');
-    } else {
-      reports.slice(0, 30).forEach(r => {
-        html += this.renderDailyReportCard(r);
-      });
+    // カレンダーヘッダー（年月選択）
+    const yearOpts = [];
+    const nowYear = new Date().getFullYear();
+    for (let y = nowYear + 1; y >= nowYear - 5; y--) {
+      yearOpts.push(`<option value="${y}" ${y === year ? 'selected' : ''}>${y}年</option>`);
     }
+    const monthOpts = [];
+    for (let m = 0; m < 12; m++) {
+      monthOpts.push(`<option value="${m}" ${m === month ? 'selected' : ''}>${m + 1}月</option>`);
+    }
+    html += `
+      <div class="calendar-header">
+        <button class="btn btn-sm btn-secondary" onclick="App.changeCalendarMonth(-1)">◀ 前月</button>
+        <div class="calendar-title">
+          <select onchange="App.setCalendarYear(this.value)" class="form-select calendar-select">${yearOpts.join('')}</select>
+          <select onchange="App.setCalendarMonth(this.value)" class="form-select calendar-select">${monthOpts.join('')}</select>
+        </div>
+        <button class="btn btn-sm btn-secondary" onclick="App.changeCalendarMonth(1)">翌月 ▶</button>
+      </div>
+    `;
+
+    // カレンダー本体
+    html += this.renderCalendar(year, month, reports);
 
     container.innerHTML = html;
+  },
+
+  renderCalendar(year, month, reports) {
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDow = firstDay.getDay();
+    const daysInMonth = lastDay.getDate();
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    // 日付ごとに日報をグループ化
+    const byDate = {};
+    reports.forEach(r => {
+      if (!byDate[r.report_date]) byDate[r.report_date] = [];
+      byDate[r.report_date].push(r);
+    });
+
+    let html = '<div class="calendar-grid">';
+    const dows = ['日', '月', '火', '水', '木', '金', '土'];
+    dows.forEach((d, i) => {
+      html += `<div class="cal-day-header ${i === 0 ? 'sun' : ''} ${i === 6 ? 'sat' : ''}">${d}</div>`;
+    });
+    for (let i = 0; i < startDow; i++) {
+      html += '<div class="cal-cell cal-empty"></div>';
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const dayReports = byDate[dateStr] || [];
+      const dow = (startDow + d - 1) % 7;
+      const isSun = dow === 0;
+      const isSat = dow === 6;
+      const isToday = dateStr === todayStr;
+      const hasReports = dayReports.length > 0;
+
+      const marks = dayReports.slice(0, 4).map(r => {
+        const s = this.state.staff.find(x => x.id === r.staff_id);
+        const initial = (s?.name || '?').slice(0, 1);
+        const color = r.status === 'draft' ? 'var(--warning)' : 'var(--primary)';
+        return `<div class="cal-mark" style="background:${color};" title="${s?.name || ''}">${initial}</div>`;
+      }).join('');
+      const moreCount = dayReports.length > 4 ? dayReports.length - 4 : 0;
+
+      html += `<div class="cal-cell ${isSun ? 'sun' : ''} ${isSat ? 'sat' : ''} ${isToday ? 'today' : ''} ${hasReports ? 'has-reports' : ''}"
+        ${hasReports ? `onclick="App.openDayReports('${dateStr}')"` : ''}>
+        <div class="cal-date">${d}</div>
+        ${hasReports ? `<div class="cal-marks">${marks}${moreCount > 0 ? `<div class="cal-mark cal-mark-more">+${moreCount}</div>` : ''}</div>` : ''}
+      </div>`;
+    }
+    html += '</div>';
+    return html;
+  },
+
+  changeCalendarMonth(delta) {
+    let { year, month } = this.state.calendarYM;
+    month += delta;
+    if (month < 0) { month = 11; year--; }
+    if (month > 11) { month = 0; year++; }
+    this.state.calendarYM = { year, month };
+    this.renderLogs();
+  },
+
+  setCalendarYear(y) {
+    this.state.calendarYM.year = parseInt(y);
+    this.renderLogs();
+  },
+
+  setCalendarMonth(m) {
+    this.state.calendarYM.month = parseInt(m);
+    this.renderLogs();
+  },
+
+  async openDayReports(dateStr) {
+    const isCEO = auth.isCEO();
+    const allReports = isCEO
+      ? await db.getDailyReports({ report_date: dateStr })
+      : await db.getDailyReports({ staff_id: auth.currentUser.id, report_date: dateStr });
+    const reports = isCEO
+      ? allReports.filter(r => (r.status || 'submitted') === 'submitted')
+      : allReports;
+
+    let body = `<p class="text-muted" style="font-size:12px;margin-bottom:14px;">${dateStr} の日報 ${reports.length}件</p>`;
+    if (reports.length === 0) {
+      body += '<p class="text-muted">なし</p>';
+    } else {
+      reports.forEach(r => {
+        body += this.renderDailyReportCard(r);
+      });
+    }
+    this.showModal(`📅 ${dateStr}`, body, null, true);
   },
 
   renderDailyReportCard(r) {

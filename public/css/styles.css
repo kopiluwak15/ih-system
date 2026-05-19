@@ -1386,6 +1386,175 @@ body {
   flex-direction: column;
 }
 
+/* ===== Calendar ===== */
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  gap: 10px;
+}
+
+.calendar-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.calendar-select {
+  width: auto !important;
+  font-weight: 600;
+  padding: 6px 10px !important;
+  font-size: 13px !important;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.cal-day-header {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gray-600);
+  padding: 6px 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cal-day-header.sun { color: #ef4444; }
+.cal-day-header.sat { color: #3b82f6; }
+
+.cal-cell {
+  min-height: 78px;
+  border-radius: 8px;
+  padding: 6px;
+  background: var(--gray-50);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.cal-empty {
+  background: transparent;
+}
+
+.cal-cell.has-reports {
+  cursor: pointer;
+  background: white;
+  border: 1.5px solid var(--border);
+}
+
+.cal-cell.has-reports:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+
+.cal-cell.today {
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border-color: var(--primary);
+}
+
+.cal-cell.today .cal-date {
+  background: var(--primary);
+  color: white;
+  border-radius: 50%;
+}
+
+.cal-date {
+  font-size: 12px;
+  font-weight: 700;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gray-800);
+}
+
+.cal-cell.sun .cal-date { color: #ef4444; }
+.cal-cell.sat .cal-date { color: #3b82f6; }
+.cal-cell.today.sun .cal-date,
+.cal-cell.today.sat .cal-date { color: white; }
+
+.cal-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-content: flex-start;
+}
+
+.cal-mark {
+  width: 20px;
+  height: 20px;
+  background: var(--primary);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cal-mark-more {
+  background: var(--gray-500) !important;
+  font-size: 9px;
+}
+
+/* スマホ用 */
+@media (max-width: 768px) {
+  .calendar-header {
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+  }
+  .calendar-title {
+    width: 100%;
+    justify-content: center;
+  }
+  .calendar-header .btn {
+    width: 100%;
+  }
+  .calendar-grid {
+    padding: 6px;
+    gap: 2px;
+  }
+  .cal-cell {
+    min-height: 56px;
+    padding: 3px;
+  }
+  .cal-date {
+    font-size: 11px;
+    width: 18px;
+    height: 18px;
+  }
+  .cal-mark {
+    width: 16px;
+    height: 16px;
+    font-size: 9px;
+    border-radius: 4px;
+  }
+  .cal-day-header {
+    font-size: 10px;
+    padding: 4px 0 6px;
+  }
+}
+
 /* ===== Mobile Header & Menu ===== */
 .mobile-header {
   display: none;
