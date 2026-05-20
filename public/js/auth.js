@@ -155,6 +155,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (confirm('ログアウトしますか？')) auth.logout();
   });
 
+  // パスワードを忘れた
+  document.getElementById('forgotPasswordLink')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (window.App && typeof window.App.requestPasswordReset === 'function') {
+      window.App.requestPasswordReset();
+    } else {
+      alert('再読み込み後にお試しください');
+    }
+  });
+
   // Init
   auth.init();
 });

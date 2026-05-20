@@ -167,10 +167,15 @@ const App = {
   },
 
   renderSettings() {
-    const activeTab = document.querySelector('.settings-tab.active');
-    const tabName = activeTab?.dataset.tab || 'companies';
+    const activeTab = document.querySelector('.settings-tab.active:not([style*="display: none"])');
+    const tabName = activeTab?.dataset.tab || 'my-account';
+    this.renderSettingsTab(tabName);
+  },
+
+  renderSettingsTab(tabName) {
     if (tabName === 'companies') this.renderCompanies();
     else if (tabName === 'business-units') this.renderBusinessUnits();
+    else if (tabName === 'my-account') this.renderMyAccount();
   },
 
   setupSettingsTabs() {
@@ -179,9 +184,160 @@ const App = {
         const tabName = tab.dataset.tab;
         document.querySelectorAll('.settings-tab').forEach(t => t.classList.toggle('active', t === tab));
         document.querySelectorAll('.settings-tab-content').forEach(c => c.classList.toggle('active', c.dataset.tabContent === tabName));
-        if (tabName === 'companies') this.renderCompanies();
-        else if (tabName === 'business-units') this.renderBusinessUnits();
+        this.renderSettingsTab(tabName);
       });
+    });
+  },
+
+  renderMyAccount() {
+    const el = document.getElementById('myAccountContent');
+    const me = auth.currentUser;
+    const myStaff = this.state.staff.find(s => s.id === me?.id);
+
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">👤 アカウント情報</div>
+        </div>
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:10px 16px;font-size:13px;">
+          <div class="text-muted">氏名</div><div><strong>${me?.name || '-'}</strong></div>
+          <div class="text-muted">メール</div><div>${me?.email || '-'}</div>
+          <div class="text-muted">権限</div><div><span class="badge ${me?.role === 'ceo' ? 'badge-warning' : 'badge-info'}">${this.roleLabel(me?.role)}</span></div>
+        </div>
+      </div>
+
+      <div class="card mt-2">
+        <div class="card-header">
+          <div class="card-title">🔒 パスワード変更</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">現在のパスワード</label>
+          <input type="password" id="pwd_current" class="form-input" autocomplete="current-password">
+        </div>
+        <div class="form-group">
+          <label class="form-label">新しいパスワード（8文字以上）</label>
+          <input type="password" id="pwd_new" class="form-input" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label class="form-label">新しいパスワード（確認）</label>
+          <input type="password" id="pwd_new_confirm" class="form-input" autocomplete="new-password">
+        </div>
+        <button class="btn btn-primary" onclick="App.changeMyPassword()">🔒 パスワードを変更</button>
+      </div>
+    `;
+  },
+
+  async changeMyPassword() {
+    const me = auth.currentUser;
+    const current = document.getElementById('pwd_current').value;
+    const newPass = document.getElementById('pwd_new').value;
+    const confirm = document.getElementById('pwd_new_confirm').value;
+
+    if (!current || !newPass || !confirm) {
+      this.toast('全ての項目を入力してください', 'error');
+      return;
+    }
+    if (newPass.length < 8) {
+      this.toast('新しいパスワードは8文字以上にしてください', 'error');
+      return;
+    }
+    if (newPass !== confirm) {
+      this.toast('新しいパスワードが一致しません', 'error');
+      return;
+    }
+
+    try {
+      const staff = await db.getStaffByEmail(me.email);
+      if (!staff || staff.password_hash !== current) {
+        this.toast('現在のパスワードが正しくありません', 'error');
+        return;
+      }
+      await db.updateStaff(staff.id, {
+        password_hash: newPass,
+        is_first_login: false
+      });
+      document.getElementById('pwd_current').value = '';
+      document.getElementById('pwd_new').value = '';
+      document.getElementById('pwd_new_confirm').value = '';
+      this.toast('パスワードを変更しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  // パスワードを忘れた → CEO へリセット依頼を通知
+  async requestPasswordReset() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.zIndex = '10001';
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:420px;">
+        <div class="modal-header">
+          <div class="modal-title">🔑 パスワードリセット依頼</div>
+          <button class="modal-close" type="button">×</button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size:12px;color:var(--gray-600);margin-bottom:12px;line-height:1.6;">
+            登録メールアドレスを入力してください。<br>管理者にリセット依頼が通知されます。
+          </p>
+          <div class="form-group">
+            <label class="form-label">メールアドレス</label>
+            <input type="email" id="reset_email" class="form-input" autocomplete="email">
+          </div>
+          <div id="reset_msg" style="display:none;font-size:12px;margin-top:8px;"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" type="button" data-action="cancel">キャンセル</button>
+          <button class="btn btn-primary" type="button" data-action="send">📧 依頼を送信</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.querySelector('.modal-close').addEventListener('click', close);
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+    overlay.querySelector('[data-action="send"]').addEventListener('click', async () => {
+      const email = overlay.querySelector('#reset_email').value.trim();
+      const msg = overlay.querySelector('#reset_msg');
+      if (!email) {
+        msg.style.display = 'block';
+        msg.style.color = 'var(--danger)';
+        msg.textContent = 'メールアドレスを入力してください';
+        return;
+      }
+      try {
+        const staff = await db.getStaffByEmail(email);
+        if (!staff) {
+          // セキュリティ的に成功と見せるが、何もしない
+          msg.style.display = 'block';
+          msg.style.color = 'var(--success)';
+          msg.textContent = '✓ 該当アカウントがあれば、管理者にリセット依頼が送られます';
+          setTimeout(close, 2500);
+          return;
+        }
+        // CEO 全員に通知
+        const all = await db.getAllStaff();
+        const ceos = all.filter(s => s.role === 'ceo');
+        for (const ceo of ceos) {
+          await db.createNotification({
+            recipient_id: ceo.id,
+            type: 'task_instruction',
+            title: '🔑 パスワードリセット依頼',
+            message: `${staff.name} (${staff.email}) からパスワード再設定の依頼が来ています。スタッフ管理ページから仮パスワードを再設定してください。`,
+          }).catch(() => {});
+        }
+        msg.style.display = 'block';
+        msg.style.color = 'var(--success)';
+        msg.textContent = '✓ 管理者にリセット依頼を送信しました。連絡をお待ちください。';
+        setTimeout(close, 2500);
+      } catch (e) {
+        msg.style.display = 'block';
+        msg.style.color = 'var(--danger)';
+        msg.textContent = 'エラー: ' + e.message;
+      }
     });
   },
 
