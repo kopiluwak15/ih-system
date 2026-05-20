@@ -1119,6 +1119,12 @@ const App = {
         <div class="text-muted">進捗</div><div>${p.progress_percent || 0}%</div>
       </div>
       ${p.description ? `<div class="card" style="background:var(--gray-50);"><div style="font-size:12px;color:var(--gray-500);margin-bottom:4px;">背景・詳細</div>${p.description}</div>` : ''}
+      ${p.rejection_comment ? `
+        <div style="background:#dbeafe;border-left:4px solid var(--primary);padding:14px 16px;border-radius:10px;margin:12px 0;">
+          <div style="font-weight:700;font-size:13px;color:#1e40af;margin-bottom:6px;">💬 CEO コメント${p.rejected_at ? ` <span style="font-weight:400;font-size:11px;">（${this.formatDate(p.rejected_at)}）</span>` : ''}</div>
+          <div style="font-size:13px;color:#1e3a8a;line-height:1.7;white-space:pre-wrap;">${p.rejection_comment}</div>
+        </div>
+      ` : ''}
       <h4 style="margin:16px 0 8px 0;font-size:14px;">${p.solution_type === 'kpi' ? '📊 KPI' : '🎯 マイルストーン'}</h4>
       ${detailContent}
       <h4 style="margin:16px 0 8px 0;font-size:14px;">📝 最近の日報</h4>
@@ -1537,11 +1543,20 @@ const App = {
             <span class="badge status-${p.status}">${this.statusLabel(p.status)}</span>
           </div>
           ${p.rejection_comment ? `
-            <div style="background:#fee2e2;padding:10px 12px;border-radius:6px;font-size:12px;color:#7f1d1d;margin-bottom:10px;">
-              <strong>前回の差し戻し:</strong> ${p.rejection_comment.substring(0, 100)}${p.rejection_comment.length > 100 ? '...' : ''}
+            <div style="background:#dbeafe;border-left:4px solid var(--primary);padding:10px 12px;border-radius:6px;font-size:12px;color:#1e3a8a;margin-bottom:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <strong>💬 CEO コメント（担当者にも表示）</strong>
+                ${p.rejected_at ? `<span style="font-size:10px;color:#1e40af;">${this.formatDate(p.rejected_at)}</span>` : ''}
+              </div>
+              <div style="white-space:pre-wrap;line-height:1.6;">${p.rejection_comment}</div>
             </div>
           ` : ''}
-          <button class="btn btn-sm btn-secondary" onclick="App.openProjectDetail('${p.id}')">詳細</button>
+          <div class="flex gap-1" style="flex-wrap:wrap;">
+            <button class="btn btn-sm btn-secondary" onclick="App.openProjectDetail('${p.id}')">詳細</button>
+            <button class="btn btn-sm btn-primary" onclick="App.editProjectComment('${p.id}')">💬 ${p.rejection_comment ? 'コメント編集' : 'コメント追加'}</button>
+            ${p.status === 'pending_approval' ? `<button class="btn btn-sm btn-success" onclick="App.approveProject('${p.id}')">✅ 承認</button>
+            <button class="btn btn-sm btn-danger" onclick="App.rejectProject('${p.id}')">↩ 差し戻し</button>` : ''}
+          </div>
         </div>`;
       });
       el.innerHTML = html;
@@ -2139,6 +2154,48 @@ const App = {
     } catch (e) {
       this.toast('エラー: ' + e.message, 'error');
     }
+  },
+
+  // CEO 用：進行中の設計にコメント追加・編集
+  async editProjectComment(id) {
+    const p = this.state.projects.find(x => x.id === id);
+    if (!p) return;
+    const assignee = this.state.staff.find(s => s.id === p.assigned_to);
+
+    this.showModal(`💬 コメント編集: ${p.title}`, `
+      <div style="background:#dbeafe;border-left:4px solid var(--primary);padding:12px 14px;border-radius:8px;margin-bottom:14px;">
+        <div style="font-weight:600;font-size:13px;color:#1e40af;margin-bottom:4px;">📌 担当者（${assignee?.name || '?'}）にも表示されます</div>
+        <div style="font-size:12px;color:#1e40af;">設計画面・プロジェクト詳細・設計モーダル内に表示されます。空欄で保存するとコメントが消えます。</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">CEO コメント</label>
+        <textarea id="edit_comment" class="form-textarea" rows="6" placeholder="例: Lv.2 中位KPI の粒度が大きすぎます。新規顧客と既存顧客を分けて再定義してください。">${p.rejection_comment || ''}</textarea>
+      </div>
+    `, async () => {
+      const comment = document.getElementById('edit_comment').value.trim();
+      try {
+        await db.updateProject(id, {
+          rejection_comment: comment || null,
+          rejected_at: comment ? new Date().toISOString() : null
+        });
+        if (comment && comment !== (p.rejection_comment || '')) {
+          await db.createNotification({
+            recipient_id: p.assigned_to,
+            type: 'new_project',
+            title: '💬 CEO からコメントが届きました',
+            message: p.title + ' - ' + comment.substring(0, 60),
+            project_id: id
+          }).catch(() => {});
+        }
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.toast(comment ? 'コメントを保存しました' : 'コメントを削除しました');
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    }, false, { submitLabel: '💾 保存', submitClass: 'btn-primary' });
   },
 
   async rejectProject(id) {
