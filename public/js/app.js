@@ -1554,6 +1554,7 @@ const App = {
           <div class="flex gap-1" style="flex-wrap:wrap;">
             <button class="btn btn-sm btn-secondary" onclick="App.openProjectDetail('${p.id}')">詳細</button>
             <button class="btn btn-sm btn-primary" onclick="App.editProjectComment('${p.id}')">💬 ${p.rejection_comment ? 'コメント編集' : 'コメント追加'}</button>
+            <button class="btn btn-sm btn-warning" onclick="App.changeSolutionType('${p.id}')" title="解決方法を切替">🔄 ${p.solution_type === 'kpi' ? 'マイルストーン' : 'KPI'}に切替</button>
             ${p.status === 'pending_approval' ? `<button class="btn btn-sm btn-success" onclick="App.approveProject('${p.id}')">✅ 承認</button>
             <button class="btn btn-sm btn-danger" onclick="App.rejectProject('${p.id}')">↩ 差し戻し</button>` : ''}
           </div>
@@ -2154,6 +2155,94 @@ const App = {
     } catch (e) {
       this.toast('エラー: ' + e.message, 'error');
     }
+  },
+
+  // CEO 用：解決方法の切替（KPI ↔ マイルストーン）
+  async changeSolutionType(id) {
+    const p = this.state.projects.find(x => x.id === id);
+    if (!p) return;
+    const newType = p.solution_type === 'kpi' ? 'milestone' : 'kpi';
+    const currentLabel = p.solution_type === 'kpi' ? 'KPI（数値で管理）' : 'マイルストーン（チェックポイント）';
+    const newLabel = newType === 'kpi' ? 'KPI（数値で管理）' : 'マイルストーン（チェックポイント）';
+
+    this.showModal(`🔄 解決方法を切替: ${p.title}`, `
+      <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:14px 16px;border-radius:10px;margin-bottom:14px;">
+        <div style="font-weight:600;font-size:13px;color:#92400e;margin-bottom:6px;">⚠️ 注意</div>
+        <div style="font-size:12px;color:#78350f;line-height:1.7;">
+          ・既存の <strong>${p.solution_type === 'kpi' ? 'KPI' : 'マイルストーン'}</strong> は履歴に保存されます<br>
+          ・プロジェクトは「設計待ち」に戻り、担当者が新しい形式で再設計します<br>
+          ・担当者に切替通知が届きます
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-bottom:14px;">
+        <div style="background:var(--gray-100);padding:14px;border-radius:10px;text-align:center;">
+          <div style="font-size:11px;color:var(--gray-500);">現在</div>
+          <div style="font-weight:700;font-size:13px;margin-top:4px;">${p.solution_type === 'kpi' ? '📊 KPI' : '🎯 マイルストーン'}</div>
+        </div>
+        <div style="font-size:24px;color:var(--primary);">→</div>
+        <div style="background:var(--primary-light);padding:14px;border-radius:10px;text-align:center;border:2px solid var(--primary);">
+          <div style="font-size:11px;color:var(--primary);">変更後</div>
+          <div style="font-weight:700;font-size:13px;margin-top:4px;color:var(--primary-dark);">${newType === 'kpi' ? '📊 KPI' : '🎯 マイルストーン'}</div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">担当者への切替理由（任意・コメント欄に追記）</label>
+        <textarea id="switch_reason" class="form-textarea" rows="3" placeholder="例: 数値追跡が難しいので、フェーズ管理に切り替えます。"></textarea>
+      </div>
+    `, async () => {
+      const reason = document.getElementById('switch_reason').value.trim();
+      try {
+        const now = new Date().toISOString();
+        // 既存をアーカイブ
+        if (p.solution_type === 'kpi') {
+          const kpis = await db.getKPIs(id);
+          for (const k of kpis) {
+            if (!k.archived) {
+              await db.updateKPI(k.id, {
+                archived: true, archived_at: now,
+                completion_note: '【解決方法変更により履歴化】KPI → マイルストーン'
+              }).catch(() => {});
+            }
+          }
+        } else {
+          const milestones = await db.getMilestones(id);
+          for (const m of milestones) {
+            if (!m.archived) {
+              await db.updateMilestone(m.id, {
+                archived: true, archived_at: now,
+                completion_note: '【解決方法変更により履歴化】マイルストーン → KPI'
+              }).catch(() => {});
+            }
+          }
+        }
+
+        const switchComment = `🔄 解決方法を「${newLabel}」に変更しました。${newLabel}で再設計してください。${reason ? '\n\n【理由】\n' + reason : ''}`;
+        await db.updateProject(id, {
+          solution_type: newType,
+          status: 'pending_design',
+          rejection_comment: switchComment,
+          rejected_at: now
+        });
+
+        await db.createNotification({
+          recipient_id: p.assigned_to,
+          type: 'new_project',
+          title: '🔄 解決方法が変更されました',
+          message: `${p.title} - ${newLabel} で再設計してください`,
+          project_id: id
+        }).catch(() => {});
+
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.toast(`解決方法を ${newLabel} に変更しました`);
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    }, false, { submitLabel: '🔄 切り替える', submitClass: 'btn-warning' });
   },
 
   // CEO 用：進行中の設計にコメント追加・編集
