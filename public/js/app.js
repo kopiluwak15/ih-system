@@ -1450,6 +1450,14 @@ const App = {
   // ===== Design (担当者がKPI/Milestoneを設計) =====
   renderDesign() {
     const container = document.getElementById('designContent');
+    const isCEO = auth.isCEO();
+
+    // CEO の場合はタブ表示（設計待ち + 履歴）
+    if (isCEO) {
+      this.renderDesignForCEO(container);
+      return;
+    }
+
     const myProjects = this.state.projects.filter(p =>
       p.assigned_to === auth.currentUser.id && p.status === 'pending_design'
     );
@@ -1462,7 +1470,8 @@ const App = {
     myProjects.forEach(p => {
       const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
       const company = unit ? this.state.companies.find(c => c.id === unit.company_id) : null;
-      html += `<div class="card">
+      const hasDraft = !!localStorage.getItem('design_draft_' + p.id);
+      html += `<div class="card" ${p.rejection_comment ? 'style="border-left:4px solid var(--danger);"' : ''}>
         <div class="card-header">
           <div class="card-title">${p.title}</div>
           <span class="badge ${p.solution_type === 'kpi' ? 'badge-info' : 'badge-warning'}">${p.solution_type === 'kpi' ? 'KPI 設計' : 'マイルストーン 設計'}</span>
@@ -1471,18 +1480,147 @@ const App = {
           ${company?.code || '?'} / ${unit?.name || '?'} ・ 締切 ${p.deadline || '-'}
         </div>
         ${p.description ? `<div class="mb-2" style="font-size:13px;color:var(--gray-700);">${p.description}</div>` : ''}
-        <button class="btn btn-primary btn-sm" onclick="App.openDesignModal('${p.id}')">設計する</button>
+        ${p.rejection_comment ? `
+          <div style="background:#fee2e2;border-left:4px solid var(--danger);padding:12px 14px;border-radius:8px;margin-bottom:12px;">
+            <div style="font-size:12px;font-weight:600;color:#991b1b;margin-bottom:4px;">⚠️ CEO からの差し戻しコメント</div>
+            <div style="font-size:13px;color:#7f1d1d;line-height:1.6;white-space:pre-wrap;">${p.rejection_comment}</div>
+            ${p.rejected_at ? `<div style="font-size:10px;color:#991b1b;margin-top:6px;">差し戻し: ${this.formatDate(p.rejected_at)}</div>` : ''}
+          </div>
+        ` : ''}
+        ${hasDraft ? `<div style="background:#dbeafe;color:#1e40af;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:8px;">📝 作成中の下書きが保存されています</div>` : ''}
+        <button class="btn btn-primary btn-sm" onclick="App.openDesignModal('${p.id}')">${hasDraft ? '下書きを開く' : '設計する'}</button>
       </div>`;
     });
     container.innerHTML = html;
+  },
+
+  // CEO 用設計画面（タブ: 進行中 / 履歴）
+  async renderDesignForCEO(container) {
+    const allProjects = this.state.projects;
+    container.innerHTML = `
+      <div class="settings-tabs">
+        <button class="design-tab active" data-tab="active">📋 進行中の設計</button>
+        <button class="design-tab" data-tab="history">📚 履歴ログ</button>
+      </div>
+      <div id="designTabContent"></div>
+    `;
+    document.querySelectorAll('.design-tab').forEach(t => {
+      t.addEventListener('click', () => {
+        document.querySelectorAll('.design-tab').forEach(x => x.classList.toggle('active', x === t));
+        this.renderDesignCeoTab(t.dataset.tab);
+      });
+    });
+    this.renderDesignCeoTab('active');
+  },
+
+  async renderDesignCeoTab(tab) {
+    const el = document.getElementById('designTabContent');
+    if (tab === 'active') {
+      // 設計待ち + 承認待ち の全プロジェクト
+      const list = this.state.projects.filter(p =>
+        p.status === 'pending_design' || p.status === 'pending_approval'
+      );
+      if (list.length === 0) {
+        el.innerHTML = this.emptyState('📐', '進行中の設計なし', '');
+        return;
+      }
+      let html = '';
+      list.forEach(p => {
+        const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
+        const assignee = this.state.staff.find(s => s.id === p.assigned_to);
+        html += `<div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">${p.title}</div>
+              <div class="text-muted" style="font-size:11px;margin-top:2px;">${unit?.name || '?'} ・ 担当 ${assignee?.name || '-'}</div>
+            </div>
+            <span class="badge status-${p.status}">${this.statusLabel(p.status)}</span>
+          </div>
+          ${p.rejection_comment ? `
+            <div style="background:#fee2e2;padding:10px 12px;border-radius:6px;font-size:12px;color:#7f1d1d;margin-bottom:10px;">
+              <strong>前回の差し戻し:</strong> ${p.rejection_comment.substring(0, 100)}${p.rejection_comment.length > 100 ? '...' : ''}
+            </div>
+          ` : ''}
+          <button class="btn btn-sm btn-secondary" onclick="App.openProjectDetail('${p.id}')">詳細</button>
+        </div>`;
+      });
+      el.innerHTML = html;
+    } else {
+      // 履歴: archived = true の KPI / Milestone（全プロジェクトから）
+      el.innerHTML = '<div class="text-muted" style="text-align:center;padding:20px;">読み込み中...</div>';
+      try {
+        // 全プロジェクトの archived KPI/Milestone を集める
+        const allKpis = [];
+        const allMs = [];
+        for (const p of this.state.projects) {
+          const ks = await db.getKPIs(p.id);
+          ks.filter(k => k.archived).forEach(k => allKpis.push({ ...k, _project: p }));
+          const ms = await db.getMilestones(p.id);
+          ms.filter(m => m.archived).forEach(m => allMs.push({ ...m, _project: p }));
+        }
+        allKpis.sort((a, b) => new Date(b.archived_at || 0) - new Date(a.archived_at || 0));
+        allMs.sort((a, b) => new Date(b.archived_at || 0) - new Date(a.archived_at || 0));
+
+        let html = '<div class="card"><div class="card-title">📊 KPI 履歴</div>';
+        if (allKpis.length === 0) {
+          html += '<p class="text-muted" style="font-size:12px;">履歴なし</p>';
+        } else {
+          allKpis.slice(0, 50).forEach(k => {
+            html += `<div style="padding:10px 12px;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;gap:10px;">
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:13px;">${k.name}</div>
+                <div style="font-size:11px;color:var(--gray-500);">${k._project.title} ・ Lv.${k.level || 1} ・ ${k.archived_at ? this.formatDate(k.archived_at) : ''}</div>
+                ${k.completion_note ? `<div style="font-size:11px;color:var(--gray-600);margin-top:2px;">${k.completion_note}</div>` : ''}
+              </div>
+              <button class="btn btn-sm" style="background:none;border:none;color:var(--gray-400);cursor:pointer;" title="完全削除" onclick="App.ceoDeleteKpi('${k.id}', '${k.name.replace(/'/g, "\\'")}');">🗑</button>
+            </div>`;
+          });
+        }
+        html += '</div>';
+
+        html += '<div class="card mt-2"><div class="card-title">🎯 マイルストーン 履歴</div>';
+        if (allMs.length === 0) {
+          html += '<p class="text-muted" style="font-size:12px;">履歴なし</p>';
+        } else {
+          allMs.slice(0, 50).forEach(m => {
+            html += `<div style="padding:10px 12px;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;gap:10px;">
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:13px;">${m.title}</div>
+                <div style="font-size:11px;color:var(--gray-500);">${m._project.title} ・ ${m.archived_at ? this.formatDate(m.archived_at) : ''}</div>
+                ${m.completion_note ? `<div style="font-size:11px;color:var(--gray-600);margin-top:2px;">${m.completion_note}</div>` : ''}
+              </div>
+              <button class="btn btn-sm" style="background:none;border:none;color:var(--gray-400);cursor:pointer;" title="完全削除" onclick="App.ceoDeleteMilestone('${m.id}', '${m.title.replace(/'/g, "\\'")}');">🗑</button>
+            </div>`;
+          });
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch (e) {
+        el.innerHTML = '<p class="text-danger">読み込みエラー: ' + e.message + '</p>';
+      }
+    }
   },
 
   async openDesignModal(projectId) {
     const p = await db.getProject(projectId);
     let bodyHtml = '';
 
+    // 差し戻しコメント表示
+    const rejectionBlock = p.rejection_comment ? `
+      <div style="background:#fee2e2;border-left:4px solid var(--danger);padding:14px 16px;border-radius:10px;margin-bottom:16px;">
+        <div style="font-size:13px;font-weight:700;color:#991b1b;margin-bottom:6px;">⚠️ CEO からの差し戻しコメント</div>
+        <div style="font-size:13px;color:#7f1d1d;line-height:1.7;white-space:pre-wrap;">${p.rejection_comment}</div>
+        ${p.rejected_at ? `<div style="font-size:10px;color:#991b1b;margin-top:6px;">差し戻し: ${this.formatDate(p.rejected_at)}</div>` : ''}
+      </div>
+    ` : '';
+
+    // 自動保存中のお知らせ
+    const autoSaveBlock = `
+      <div id="autoSaveStatus" style="font-size:11px;color:var(--gray-500);text-align:right;margin-bottom:6px;">📝 自動保存待機中</div>
+    `;
+
     if (p.solution_type === 'kpi') {
-      bodyHtml = `
+      bodyHtml = rejectionBlock + `
         <div class="kpi-chart-info">
           <div class="kpi-chart-info-title">📊 KPI ツリー設計（3階層必須）</div>
           <div class="kpi-chart-info-desc">
@@ -1491,8 +1629,8 @@ const App = {
             <span class="kpi-level-tag kpi-level-3">Lv.3 実行</span> <strong>合計4〜9個</strong>
           </div>
         </div>
+        ${autoSaveBlock}
 
-        <!-- Level 1 -->
         <div class="kpi-tree-section">
           <div class="kpi-tree-section-title"><span class="kpi-level-tag kpi-level-1">Lv.1</span> メイン KPI（このプロジェクトの最終目標）</div>
           <div id="kpiLevel1" class="kpi-tree-level1"></div>
@@ -1500,7 +1638,6 @@ const App = {
 
         <div class="kpi-tree-arrow">▼</div>
 
-        <!-- Level 2 -->
         <div class="kpi-tree-section">
           <div class="kpi-tree-section-title">
             <span class="kpi-level-tag kpi-level-2">Lv.2</span> 中位 KPI（メインを分解：2〜3個）
@@ -1511,7 +1648,6 @@ const App = {
 
         <div class="kpi-tree-arrow">▼</div>
 
-        <!-- Level 3 (Lv.2 の配下) -->
         <div class="kpi-tree-section">
           <div class="kpi-tree-section-title">
             <span class="kpi-level-tag kpi-level-3">Lv.3</span> 実行 KPI（中位ごとに子を設定：合計4〜9個）
@@ -1520,13 +1656,14 @@ const App = {
         </div>
       `;
     } else {
-      bodyHtml = `
+      bodyHtml = rejectionBlock + `
         <div class="kpi-chart-info" style="background:linear-gradient(135deg,#fef3c7,#fde68a);">
           <div class="kpi-chart-info-title">🎯 マイルストーン タイムライン（5フェーズ以上）</div>
           <div class="kpi-chart-info-desc">
             期限まで <strong>5フェーズ以上</strong> に分けて、達成までの道筋を描いてください。
           </div>
         </div>
+        ${autoSaveBlock}
         <div id="msTimeline" class="ms-timeline"></div>
         <div style="text-align:center;margin-top:10px;">
           <button class="btn btn-primary btn-sm" type="button" onclick="App.addMilestoneRow()">+ フェーズ追加</button>
@@ -1535,7 +1672,12 @@ const App = {
       `;
     }
 
+    // 現在編集中のプロジェクト ID を記録（自動保存用）
+    this._currentDesignProjectId = projectId;
+    this._currentDesignType = p.solution_type;
+
     this.showModal(`設計: ${p.title}`, bodyHtml, async () => {
+      // 提出前のバリデーション → ダブルチェック → 実行
       try {
         if (p.solution_type === 'kpi') {
           // Level 1
@@ -1555,6 +1697,13 @@ const App = {
           if (lv3Valid.length < 4 || lv3Valid.length > 9) {
             this.toast('Lv.3 実行KPI は合計 4〜9個 必要です（現在 ' + lv3Valid.length + ' 個）', 'error'); return false;
           }
+
+          // ダブルチェック確認
+          const ok = await this.confirmSubmit(
+            'KPI 設計を提出してよろしいですか？',
+            `Lv.1: 1個 / Lv.2: ${lv2Valid.length}個 / Lv.3: ${lv3Valid.length}個 を CEO に提出します。`
+          );
+          if (!ok) return false;
 
           // Save Level 1
           const lv1Data = await db.createKPI({
@@ -1607,6 +1756,14 @@ const App = {
             this.toast('マイルストーンは 5フェーズ以上 必要です（現在 ' + valid.length + ' 個）', 'error');
             return false;
           }
+
+          // ダブルチェック確認
+          const ok = await this.confirmSubmit(
+            'マイルストーン設計を提出してよろしいですか？',
+            `${valid.length}個のフェーズを CEO に提出します。`
+          );
+          if (!ok) return false;
+
           let order = 0;
           for (const row of valid) {
             await db.createMilestone({
@@ -1619,8 +1776,11 @@ const App = {
           }
         }
 
-        // ステータスを承認待ちに
-        await db.updateProject(projectId, { status: 'pending_approval' });
+        // ステータスを承認待ちに（差し戻しコメントをクリア）
+        await db.updateProject(projectId, {
+          status: 'pending_approval',
+          rejection_comment: null
+        });
         // CEO に通知
         const ceos = this.state.staff.filter(s => s.role === 'ceo');
         for (const ceo of ceos) {
@@ -1632,6 +1792,8 @@ const App = {
             project_id: projectId
           });
         }
+        // 下書き削除
+        localStorage.removeItem('design_draft_' + projectId);
         await this.loadAllData();
         this.renderCurrentPage();
         this.toast('設計を提出しました。CEO の承認を待ちます');
@@ -1643,18 +1805,158 @@ const App = {
     });
 
     setTimeout(() => {
+      // 下書き読み込み
+      const draft = this.loadDesignDraft(projectId);
+
       if (p.solution_type === 'kpi') {
-        // Level 1（1個固定）
-        this.addKpiRow(document.getElementById('kpiLevel1'), 1, '');
-        // Level 2 初期2個
-        this.addKpiLevel2();
-        this.addKpiLevel2();
+        if (draft && draft.type === 'kpi') {
+          // 復元
+          this.addKpiRow(document.getElementById('kpiLevel1'), 1, '');
+          this.fillKpiRow(document.querySelector('#kpiLevel1 .kpi-row'), draft.lv1);
+          (draft.lv2 || []).forEach((l2, idx) => {
+            this.addKpiLevel2();
+            const lv2Row = document.querySelectorAll('#kpiLevel2 .kpi-row')[idx];
+            if (lv2Row) this.fillKpiRow(lv2Row, l2);
+          });
+          (draft.lv3 || []).forEach((l3, idx) => {
+            const lv2Row = document.querySelectorAll('#kpiLevel2 .kpi-row')[l3.parentIdx];
+            if (!lv2Row) return;
+            const parentLocalIdx = lv2Row.dataset.localIdx;
+            this.addKpiLevel3(parentLocalIdx);
+            const lv3Rows = document.querySelectorAll(`.kpi-tree-level3[data-parent-local-idx="${parentLocalIdx}"] .kpi-row`);
+            const targetRow = lv3Rows[lv3Rows.length - 1];
+            if (targetRow) this.fillKpiRow(targetRow, l3);
+          });
+          this.toast('下書きを復元しました');
+        } else {
+          this.addKpiRow(document.getElementById('kpiLevel1'), 1, '');
+          this.addKpiLevel2();
+          this.addKpiLevel2();
+        }
       } else {
-        // Milestone 初期5フェーズ
-        for (let i = 0; i < 5; i++) this.addMilestoneRow();
+        if (draft && draft.type === 'milestone' && draft.phases?.length > 0) {
+          draft.phases.forEach(phase => {
+            this.addMilestoneRow();
+            const rows = document.querySelectorAll('#msTimeline .ms-row');
+            const last = rows[rows.length - 1];
+            if (last) {
+              last.querySelector('.m-title').value = phase.title || '';
+              last.querySelector('.m-desc').value = phase.desc || '';
+              last.querySelector('.m-date').value = phase.date || '';
+            }
+          });
+          this.toast('下書きを復元しました');
+        } else {
+          for (let i = 0; i < 5; i++) this.addMilestoneRow();
+        }
         this.updateMilestoneCounter();
       }
+
+      // 自動保存リスナー
+      this.attachAutoSave(projectId, p.solution_type);
     }, 50);
+  },
+
+  fillKpiRow(row, data) {
+    if (!row || !data) return;
+    row.querySelector('.k-name').value = data.name || '';
+    row.querySelector('.k-start').value = data.start ?? 0;
+    row.querySelector('.k-target').value = data.target ?? '';
+    row.querySelector('.k-unit').value = data.unit || '';
+    row.querySelector('.k-date').value = data.date || '';
+  },
+
+  // 提出前のダブルチェック確認モーダル
+  confirmSubmit(title, description) {
+    return new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.style.zIndex = '10001';
+      overlay.innerHTML = `
+        <div class="modal" style="max-width:420px;">
+          <div class="modal-header">
+            <div class="modal-title">📤 提出確認</div>
+          </div>
+          <div class="modal-body">
+            <div style="text-align:center;margin-bottom:14px;">
+              <div style="font-size:42px;line-height:1;margin-bottom:8px;">⚠️</div>
+              <div style="font-size:15px;font-weight:700;margin-bottom:6px;">${title}</div>
+              <div style="font-size:12px;color:var(--gray-600);line-height:1.6;">${description}</div>
+              <div style="font-size:11px;color:var(--gray-500);margin-top:10px;">提出後は CEO の承認待ちとなります。<br>差し戻しの場合はコメント付きで戻ってきます。</div>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" data-action="cancel">戻って確認</button>
+            <button class="btn btn-success" data-action="confirm">✅ 提出する</button>
+          </div>
+        </div>
+      `;
+      document.getElementById('modalContainer').appendChild(overlay);
+      const cleanup = (r) => { overlay.remove(); resolve(r); };
+      overlay.querySelector('[data-action="confirm"]').addEventListener('click', () => cleanup(true));
+      overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => cleanup(false));
+      overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(false); });
+    });
+  },
+
+  // 下書き保存・復元
+  saveDesignDraft(projectId, solutionType) {
+    try {
+      if (solutionType === 'kpi') {
+        const lv1Row = document.querySelector('#kpiLevel1 .kpi-row');
+        if (!lv1Row) return;
+        const readRow = (r) => ({
+          name: r.querySelector('.k-name').value,
+          start: r.querySelector('.k-start').value,
+          target: r.querySelector('.k-target').value,
+          unit: r.querySelector('.k-unit').value,
+          date: r.querySelector('.k-date').value
+        });
+        const lv1 = readRow(lv1Row);
+        const lv2Rows = Array.from(document.querySelectorAll('#kpiLevel2 .kpi-row'));
+        const lv2 = lv2Rows.map(r => readRow(r));
+        const lv3 = [];
+        lv2Rows.forEach((lv2Row, parentIdx) => {
+          const parentLocalIdx = lv2Row.dataset.localIdx;
+          const children = document.querySelectorAll(`.kpi-tree-level3[data-parent-local-idx="${parentLocalIdx}"] .kpi-row`);
+          children.forEach(c => lv3.push({ ...readRow(c), parentIdx }));
+        });
+        const draft = { type: 'kpi', lv1, lv2, lv3, savedAt: Date.now() };
+        localStorage.setItem('design_draft_' + projectId, JSON.stringify(draft));
+      } else {
+        const rows = Array.from(document.querySelectorAll('#msTimeline .ms-row'));
+        const phases = rows.map(r => ({
+          title: r.querySelector('.m-title').value,
+          desc: r.querySelector('.m-desc').value,
+          date: r.querySelector('.m-date').value
+        }));
+        const draft = { type: 'milestone', phases, savedAt: Date.now() };
+        localStorage.setItem('design_draft_' + projectId, JSON.stringify(draft));
+      }
+      const indicator = document.getElementById('autoSaveStatus');
+      if (indicator) {
+        indicator.textContent = '✓ ' + new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' に自動保存しました';
+        indicator.style.color = 'var(--success)';
+      }
+    } catch (e) { /* silent */ }
+  },
+
+  loadDesignDraft(projectId) {
+    try {
+      const json = localStorage.getItem('design_draft_' + projectId);
+      return json ? JSON.parse(json) : null;
+    } catch { return null; }
+  },
+
+  attachAutoSave(projectId, solutionType) {
+    if (this._autoSaveHandler) document.removeEventListener('input', this._autoSaveHandler, true);
+    let timer;
+    this._autoSaveHandler = (e) => {
+      if (!e.target.closest('.kpi-row, .ms-row')) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => this.saveDesignDraft(projectId, solutionType), 600);
+    };
+    document.addEventListener('input', this._autoSaveHandler, true);
   },
 
   // Level 1/2/3 共通カード生成
@@ -1841,22 +2143,68 @@ const App = {
 
   async rejectProject(id) {
     const p = this.state.projects.find(x => x.id === id);
-    if (!confirm(`「${p.title}」を差し戻しますか？担当者が再設計します。`)) return;
-    try {
-      await db.updateProject(id, { status: 'pending_design' });
-      await db.createNotification({
-        recipient_id: p.assigned_to,
-        type: 'new_project',
-        title: '課題が差し戻されました',
-        message: p.title + ' - 再設計が必要です',
-        project_id: id
-      });
-      await this.loadAllData();
-      this.renderCurrentPage();
-      this.toast('差し戻しました');
-    } catch (e) {
-      this.toast('エラー: ' + e.message, 'error');
-    }
+    if (!p) return;
+    this.showModal(`差し戻し: ${p.title}`, `
+      <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px 14px;border-radius:8px;margin-bottom:14px;">
+        <div style="font-weight:600;font-size:13px;color:#92400e;margin-bottom:4px;">⚠️ 担当者へ具体的な修正点を伝えてください</div>
+        <div style="font-size:12px;color:#92400e;">差し戻しコメントは担当者の再設計画面に表示されます。</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">差し戻しコメント *</label>
+        <textarea id="reject_comment" class="form-textarea" rows="6" placeholder="例: Lv.2 中位KPI の粒度が大きすぎます。新規顧客と既存顧客を分けて、それぞれ独立した指標として再定義してください。"></textarea>
+      </div>
+      <p class="text-muted" style="font-size:11px;margin-top:8px;">※ 既存の KPI/マイルストーンは履歴に保存され、設計画面はクリアされます。</p>
+    `, async () => {
+      const comment = document.getElementById('reject_comment').value.trim();
+      if (!comment || comment.length < 5) {
+        this.toast('差し戻しコメントは5文字以上で入力してください', 'error');
+        return false;
+      }
+      try {
+        // 既存の KPI/Milestone をアーカイブ（履歴保存）
+        const now = new Date().toISOString();
+        const existingKpis = await db.getKPIs(id);
+        for (const k of existingKpis) {
+          if (!k.archived) {
+            await db.updateKPI(k.id, {
+              archived: true,
+              archived_at: now,
+              completion_note: '【差し戻しによる履歴化】' + comment.substring(0, 100)
+            }).catch(() => {});
+          }
+        }
+        const existingMs = await db.getMilestones(id);
+        for (const m of existingMs) {
+          if (!m.archived) {
+            await db.updateMilestone(m.id, {
+              archived: true,
+              archived_at: now,
+              completion_note: '【差し戻しによる履歴化】' + comment.substring(0, 100)
+            }).catch(() => {});
+          }
+        }
+
+        await db.updateProject(id, {
+          status: 'pending_design',
+          rejection_comment: comment,
+          rejected_at: now
+        });
+        await db.createNotification({
+          recipient_id: p.assigned_to,
+          type: 'new_project',
+          title: '⚠️ 課題が差し戻されました',
+          message: p.title + ' - ' + comment.substring(0, 60),
+          project_id: id
+        });
+        await this.loadAllData();
+        this.renderCurrentPage();
+        this.toast('差し戻しました');
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    }, false, { submitLabel: '↩ 差し戻す', submitClass: 'btn-danger' });
   },
 
   // ===== Daily Logs =====

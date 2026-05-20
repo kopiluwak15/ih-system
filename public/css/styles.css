@@ -1555,6 +1555,22 @@ body {
   }
 }
 
+/* ===== Design tabs (CEO) ===== */
+.design-tab {
+  padding: 12px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-500);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  font-family: inherit;
+}
+.design-tab:hover { color: var(--gray-900); }
+.design-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
 /* ===== Mobile Header & Menu ===== */
 .mobile-header {
   display: none;
