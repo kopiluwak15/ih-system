@@ -484,15 +484,30 @@ const App = {
   },
 
   async acknowledgeTaskInstruction(id) {
-    if (!confirm('この指示を理解しましたか？確認後はバッジが消えます。')) return;
+    const t = this.state.taskInstructions.find(x => x.id === id);
+    if (!t) return;
+    if (!confirm('この指示を理解しましたか？確認するとCEOに通知されます。')) return;
     try {
       await db.updateTaskInstruction(id, {
         status: 'acknowledged',
         acknowledged_at: new Date().toISOString()
       });
+      // CEO 全員に通知（指示作成者 + CEO 全員）
+      const targets = new Set();
+      if (t.created_by) targets.add(t.created_by);
+      this.state.staff.filter(s => s.role === 'ceo').forEach(s => targets.add(s.id));
+      for (const recipientId of targets) {
+        if (recipientId === auth.currentUser.id) continue;
+        await db.createNotification({
+          recipient_id: recipientId,
+          type: 'task_acknowledged',
+          title: '✅ タスク指示が確認されました',
+          message: `${auth.currentUser.name} が「${t.title}」を確認しました`
+        }).catch(() => {});
+      }
       await this.loadAllData();
       this.renderCurrentPage();
-      this.toast('確認しました');
+      this.toast('確認しました。CEOに通知済みです');
     } catch (e) {
       this.toast('エラー: ' + e.message, 'error');
     }
@@ -621,18 +636,25 @@ const App = {
       const todayStr = new Date().toISOString().slice(0, 10);
       const doneToday = logs.some(l => l.log_date === todayStr);
 
-      html += `<div class="card">
+      const isMine = t.assigned_to === auth.currentUser.id;
+      const isUnack = isMine && !t.acknowledged_at;
+
+      html += `<div class="card" style="${isUnack ? 'border-left:4px solid var(--danger);' : ''}">
         <div class="card-header">
           <div>
             <div class="card-title">${t.title}</div>
-            <div class="text-muted" style="font-size:11px;margin-top:2px;">${cycleLabel} ・ 担当 ${assignee?.name || '-'}</div>
+            <div class="text-muted" style="font-size:11px;margin-top:2px;">${cycleLabel} ・ 担当 ${assignee?.name || '-'}${t.acknowledged_at ? ` ・ <span style="color:var(--success);">✓ 確認済</span>` : ''}</div>
           </div>
-          <span class="badge ${doneToday ? 'badge-success' : 'badge-gray'}">${doneToday ? '本日実施済' : '未実施'}</span>
+          <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+            ${isUnack ? '<span class="badge badge-danger">未確認</span>' : ''}
+            <span class="badge ${doneToday ? 'badge-success' : 'badge-gray'}">${doneToday ? '本日実施済' : '未実施'}</span>
+          </div>
         </div>
         ${t.description ? `<div class="mb-2" style="font-size:12px;color:var(--gray-700);">${t.description}</div>` : ''}
-        <div class="flex gap-1 mb-2">
-          ${(t.assigned_to === auth.currentUser.id || auth.isCEO()) ? `<button class="btn btn-sm btn-primary" onclick="App.openRoutineLogModal('${t.id}')">+ ログ登録</button>` : ''}
-          ${(t.assigned_to === auth.currentUser.id || auth.isCEO()) ? `<button class="btn btn-sm btn-success" onclick="App.archiveRoutineTask('${t.id}', '${t.title.replace(/'/g, "\\'")}');">📦 完了/アーカイブ</button>` : ''}
+        <div class="flex gap-1 mb-2" style="flex-wrap:wrap;">
+          ${isUnack ? `<button class="btn btn-sm btn-success" onclick="App.acknowledgeRoutineTask('${t.id}')">✅ 指示を確認した</button>` : ''}
+          ${(isMine || auth.isCEO()) ? `<button class="btn btn-sm btn-primary" onclick="App.openRoutineLogModal('${t.id}')">+ ログ登録</button>` : ''}
+          ${(isMine || auth.isCEO()) ? `<button class="btn btn-sm btn-success" onclick="App.archiveRoutineTask('${t.id}', '${t.title.replace(/'/g, "\\'")}');">📦 完了/アーカイブ</button>` : ''}
           ${auth.isCEO() ? `<button class="btn btn-sm btn-secondary" onclick="App.openRoutineTaskModal('${t.id}')">編集</button>` : ''}
           ${auth.isCEO() ? `<button class="btn btn-sm btn-danger" onclick="App.deleteRoutineTask('${t.id}')">🗑 削除</button>` : ''}
         </div>
@@ -707,17 +729,57 @@ const App = {
         return false;
       }
       try {
-        if (id) await db.updateRoutineTask(id, data);
-        else await db.createRoutineTask(data);
+        if (id) {
+          await db.updateRoutineTask(id, data);
+        } else {
+          const created = await db.createRoutineTask(data);
+          const newId = Array.isArray(created) ? created[0]?.id : created?.id;
+          // 担当者へ通知
+          await db.createNotification({
+            recipient_id: data.assigned_to,
+            type: 'routine_assigned',
+            title: '🔄 ルーティン指示が届きました',
+            message: `${data.title}（${{daily:'毎日',weekly:'毎週',monthly:'毎月'}[data.cycle]}）`
+          }).catch(() => {});
+        }
         await this.loadAllData();
         this.renderCurrentPage();
-        this.toast(id ? '更新しました' : 'ルーティンを登録しました');
+        this.toast(id ? '更新しました' : 'ルーティンを登録し、担当者に通知しました');
         return true;
       } catch (e) {
         this.toast('エラー: ' + e.message, 'error');
         return false;
       }
     });
+  },
+
+  // ルーティン確認（担当者が「指示を確認した」を押下）
+  async acknowledgeRoutineTask(id) {
+    const r = this.state.routineTasks.find(x => x.id === id);
+    if (!r) return;
+    if (!confirm('このルーティン指示を理解しましたか？確認するとCEOに通知されます。')) return;
+    try {
+      const now = new Date().toISOString();
+      await db.updateRoutineTask(id, {
+        acknowledged_at: now,
+        acknowledged_by: auth.currentUser.id
+      });
+      // CEO 全員に通知
+      const ceos = this.state.staff.filter(s => s.role === 'ceo');
+      for (const ceo of ceos) {
+        await db.createNotification({
+          recipient_id: ceo.id,
+          type: 'routine_acknowledged',
+          title: '✅ ルーティン指示が確認されました',
+          message: `${auth.currentUser.name} が「${r.title}」を確認しました`
+        }).catch(() => {});
+      }
+      await this.loadAllData();
+      this.renderCurrentPage();
+      this.toast('確認しました。CEOに通知済みです');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
   },
 
   openRoutineLogModal(routineId) {
