@@ -943,37 +943,34 @@ const App = {
     }
     html += '</div>';
 
-    // 進行中プロジェクト一覧
+    // 進行中プロジェクト一覧（4列グリッド）
     html += '<h3 style="font-size:13px;font-weight:600;color:var(--gray-700);margin:14px 0 6px 0;">🎯 進行中のプロジェクト</h3>';
     if (active.length === 0) {
       html += this.emptyState('🎯', '進行中プロジェクトなし', '「課題抽出」から新しい課題を作成してください');
     } else {
+      html += '<div class="project-grid">';
       active.forEach(p => {
         const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
         const company = unit ? this.state.companies.find(c => c.id === unit.company_id) : null;
         const assignee = this.state.staff.find(s => s.id === p.assigned_to);
         const dlClass = this.deadlineClass(p.deadline);
-        html += `<div class="project-card ${dlClass}" onclick="App.openProjectDetail('${p.id}')">
-          <div class="project-card-header">
-            <div>
-              <div class="project-card-title">${p.title}</div>
-              <div class="project-card-meta">
-                ${company ? company.code : '?'} / ${unit ? unit.name : '?'}
-                ${p.deadline ? ` ・ 締切 ${p.deadline}` : ''}
-                ${assignee ? ` ・ 担当 ${assignee.name}` : ''}
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-              ${this.deadlineTagHtml(p.deadline)}
-              <span class="badge ${p.solution_type === 'kpi' ? 'badge-info' : 'badge-warning'}">
-                ${p.solution_type === 'kpi' ? 'KPI' : 'マイルストーン'}
-              </span>
-            </div>
+        const progressColor = (p.progress_percent || 0) >= 75 ? '#10b981' : (p.progress_percent || 0) >= 50 ? '#3b82f6' : (p.progress_percent || 0) >= 25 ? '#f59e0b' : '#ef4444';
+        html += `<div class="project-card project-card-compact ${dlClass}" onclick="App.openProjectDetail('${p.id}')">
+          <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
+            <span class="badge ${p.solution_type === 'kpi' ? 'badge-info' : 'badge-warning'}" style="font-size:9px;padding:1px 6px;">${p.solution_type === 'kpi' ? 'KPI' : 'MS'}</span>
+            ${this.deadlineTagHtml(p.deadline)}
           </div>
-          <div class="progress-bar"><div class="progress-fill" style="width:${p.progress_percent || 0}%"></div></div>
-          <div class="text-muted" style="font-size:11px;margin-top:4px;">${p.progress_percent || 0}% 達成</div>
+          <div class="project-card-title" style="font-size:13px;line-height:1.4;margin-bottom:4px;">${p.title}</div>
+          <div class="project-card-meta" style="font-size:10px;color:var(--gray-500);line-height:1.5;">
+            <div>${company ? company.code : '?'} / ${unit ? unit.name : '?'}</div>
+            ${assignee ? `<div>👤 ${assignee.name}</div>` : ''}
+            ${p.deadline ? `<div>📅 ${p.deadline}</div>` : ''}
+          </div>
+          <div class="progress-bar" style="height:5px;margin-top:8px;"><div class="progress-fill" style="width:${p.progress_percent || 0}%;background:${progressColor};"></div></div>
+          <div style="display:flex;justify-content:flex-end;font-size:10px;color:var(--gray-500);font-weight:600;margin-top:3px;">${p.progress_percent || 0}%</div>
         </div>`;
       });
+      html += '</div>';
     }
 
     container.innerHTML = html;
