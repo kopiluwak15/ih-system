@@ -2932,7 +2932,14 @@ const App = {
         const pid = row.querySelector('.r_p_id').value;
         const action = row.querySelector('.r_p_action').value.trim();
         const progress = parseInt(row.querySelector('.r_p_progress').value) || 0;
-        if (pid && action) projects.push({ project_id: pid, action, progress });
+        // KPI 値も収集
+        const kpi_values = {};
+        row.querySelectorAll('.report-kpi-card').forEach(card => {
+          const kid = card.dataset.kpiId;
+          const val = parseFloat(card.querySelector('.r_kpi_value').value);
+          if (kid && !isNaN(val)) kpi_values[kid] = val;
+        });
+        if (pid && action) projects.push({ project_id: pid, action, progress, kpi_values });
       });
 
       const issues = [];
@@ -3006,12 +3013,21 @@ const App = {
             }).catch(() => {});
           }
 
-          // プロジェクト進捗を更新
+          // プロジェクト進捗を更新（Lv.3 KPI 値を反映）
           for (const p of projects) {
-            await db.updateProject(p.project_id, {
-              progress_percent: p.progress,
-              status: p.progress >= 100 ? 'completed' : 'active'
-            });
+            // Lv.3 KPI 値を Supabase に保存
+            if (p.kpi_values && Object.keys(p.kpi_values).length > 0) {
+              for (const [kid, val] of Object.entries(p.kpi_values)) {
+                await db.updateKPI(kid, { current_value: val }).catch(() => {});
+              }
+              // Lv.3 反映後に Lv.2/Lv.1 を再計算 + プロジェクト進捗を再算出
+              await this.recalculateProgress(p.project_id);
+            } else {
+              await db.updateProject(p.project_id, {
+                progress_percent: p.progress,
+                status: p.progress >= 100 ? 'completed' : 'active'
+              });
+            }
           }
 
           // CEO に通知
@@ -3074,7 +3090,7 @@ const App = {
     );
     if (myProjects.length === 0) return;
     const projOpts = myProjects.map(p =>
-      `<option value="${p.id}" ${existing?.project_id === p.id ? 'selected' : ''}>${p.title} (現在 ${p.progress_percent || 0}%)</option>`
+      `<option value="${p.id}" ${existing?.project_id === p.id ? 'selected' : ''}>${p.title} (現在 ${p.progress_percent || 0}%) - ${p.solution_type === 'kpi' ? 'KPI' : 'マイルストーン'}</option>`
     ).join('');
 
     const row = document.createElement('div');
@@ -3084,18 +3100,119 @@ const App = {
       <button type="button" onclick="this.parentElement.remove()" style="position:absolute;top:6px;right:6px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px;">×</button>
       <div class="form-group" style="margin-bottom:8px;">
         <label class="form-label">プロジェクト</label>
-        <select class="form-select r_p_id"><option value="">-- 選択 --</option>${projOpts}</select>
+        <select class="form-select r_p_id" onchange="App.onReportProjectChange(this)"><option value="">-- 選択 --</option>${projOpts}</select>
       </div>
       <div class="form-group" style="margin-bottom:8px;">
         <label class="form-label">行動ログ</label>
         <textarea class="form-textarea r_p_action" rows="2" placeholder="今日このプロジェクトに対して行ったこと">${existing?.action || ''}</textarea>
       </div>
-      <div class="form-group" style="margin-bottom:0;">
-        <label class="form-label">進捗率 (%)</label>
-        <input type="number" class="form-input r_p_progress" min="0" max="100" value="${existing?.progress ?? ''}" placeholder="0-100">
+      <div class="r_p_kpi_area" style="margin-bottom:8px;"></div>
+      <div class="form-group r_p_progress_wrap" style="margin-bottom:0;">
+        <label class="form-label">進捗率 (%) <span class="text-muted" style="font-size:10px;">プロジェクト全体</span></label>
+        <input type="number" class="form-input r_p_progress" min="0" max="100" value="${existing?.progress ?? ''}" placeholder="0-100" readonly style="background:var(--gray-50);">
       </div>
     `;
     list.appendChild(row);
+
+    // 既存復元時は KPI UI を再描画
+    if (existing?.project_id) {
+      const select = row.querySelector('.r_p_id');
+      select.value = existing.project_id;
+      this.onReportProjectChange(select, existing);
+    }
+  },
+
+  async onReportProjectChange(selectEl, existing = null) {
+    const row = selectEl.closest('.r_project_row');
+    const projectId = selectEl.value;
+    const kpiArea = row.querySelector('.r_p_kpi_area');
+    const progressInput = row.querySelector('.r_p_progress');
+    const progressWrap = row.querySelector('.r_p_progress_wrap');
+    kpiArea.innerHTML = '';
+    if (!projectId) {
+      progressInput.value = '';
+      progressInput.readOnly = false;
+      progressInput.style.background = '';
+      progressWrap.style.display = 'block';
+      return;
+    }
+
+    const project = this.state.projects.find(p => p.id === projectId);
+    if (!project) return;
+
+    if (project.solution_type === 'kpi') {
+      // Lv.3 KPI の数値入力 UI
+      const kpis = await db.getKPIs(projectId);
+      const lv3 = kpis.filter(k => (k.level || 1) === 3 && !k.archived);
+      if (lv3.length === 0) {
+        kpiArea.innerHTML = '<p class="text-muted" style="font-size:11px;">Lv.3 KPI 未設定。プロジェクト全体の進捗率を直接入力してください。</p>';
+        progressInput.readOnly = false;
+        progressInput.style.background = '';
+        return;
+      }
+
+      progressInput.readOnly = true;
+      progressInput.style.background = 'var(--gray-50)';
+
+      const existingKpis = existing?.kpi_values || {};
+      let html = `
+        <div style="background:var(--primary-light);padding:10px 12px;border-radius:8px;border-left:4px solid var(--primary);">
+          <div style="font-size:12px;font-weight:600;color:var(--primary-dark);margin-bottom:8px;">📊 Lv.3 実行KPI の現在値を入力</div>
+          <div class="report-kpi-grid">
+      `;
+      lv3.forEach(k => {
+        const currentVal = existingKpis[k.id] !== undefined ? existingKpis[k.id] : k.current_value;
+        html += `<div class="report-kpi-card" data-kpi-id="${k.id}" data-start="${k.start_value}" data-target="${k.target_value}">
+          <div style="font-size:12px;font-weight:600;color:var(--gray-900);">${k.name}</div>
+          <div style="font-size:10px;color:var(--gray-500);margin-top:2px;">目標 ${k.target_value} ${k.unit || ''}（開始 ${k.start_value}）</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+            <input type="number" class="form-input r_kpi_value" step="any" value="${currentVal}" style="font-size:13px;padding:6px 8px;flex:1;" oninput="App.recalcReportRow(this)">
+            <span style="font-size:11px;color:var(--gray-500);min-width:30px;">${k.unit || ''}</span>
+          </div>
+          <div class="kpi-card-progress">
+            <div class="progress-bar" style="flex:1;height:5px;"><div class="progress-fill kpi-fill" style="width:0%;"></div></div>
+            <span class="kpi-percent" style="font-size:10px;color:var(--gray-500);min-width:36px;text-align:right;">0%</span>
+          </div>
+        </div>`;
+      });
+      html += `</div>
+          <div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(37, 99, 235, 0.3);display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11px;color:var(--primary-dark);font-weight:600;">プロジェクト全体（Lv.3 平均）</span>
+            <span class="r_total_progress" style="font-size:14px;font-weight:700;color:var(--primary);">0%</span>
+          </div>
+        </div>
+      `;
+      kpiArea.innerHTML = html;
+      this.recalcReportRow(row.querySelector('.r_kpi_value'));
+    } else {
+      // マイルストーン型は従来通り直接入力
+      progressInput.readOnly = false;
+      progressInput.style.background = '';
+      kpiArea.innerHTML = '<p class="text-muted" style="font-size:11px;">マイルストーン型: 完了済みフェーズ数から自動算出するため、進捗率は手動入力でも OK。</p>';
+    }
+  },
+
+  recalcReportRow(input) {
+    const row = input.closest('.r_project_row');
+    if (!row) return;
+    const cards = row.querySelectorAll('.report-kpi-card');
+    let totalPercent = 0;
+    cards.forEach(card => {
+      const start = parseFloat(card.dataset.start);
+      const target = parseFloat(card.dataset.target);
+      const val = parseFloat(card.querySelector('.r_kpi_value').value);
+      const range = target - start;
+      const p = (range !== 0 && !isNaN(val)) ? Math.max(0, Math.min(100, ((val - start) / range) * 100)) : 0;
+      card.querySelector('.kpi-fill').style.width = p + '%';
+      const progressColor = p >= 100 ? '#10b981' : (p >= 50 ? '#3b82f6' : (p >= 25 ? '#f59e0b' : '#ef4444'));
+      card.querySelector('.kpi-fill').style.background = progressColor;
+      card.querySelector('.kpi-percent').textContent = Math.round(p) + '%';
+      totalPercent += p;
+    });
+    const avg = cards.length > 0 ? Math.round(totalPercent / cards.length) : 0;
+    row.querySelector('.r_p_progress').value = avg;
+    const totalEl = row.querySelector('.r_total_progress');
+    if (totalEl) totalEl.textContent = avg + '%';
   },
 
   addReportIssueRow(existing = null) {
@@ -3174,26 +3291,69 @@ const App = {
     }
   },
 
+  // KPI 単体の進捗率（0-100）
+  kpiProgress(k) {
+    const range = (k.target_value || 0) - (k.start_value || 0);
+    if (range === 0) return 0;
+    const p = ((k.current_value - k.start_value) / range) * 100;
+    return Math.max(0, Math.min(100, p));
+  },
+
+  // Lv.2 KPI の進捗率＝配下の Lv.3 の平均
+  async rollupKpiParents(projectId) {
+    const kpis = await db.getKPIs(projectId);
+    const visible = kpis.filter(k => !k.archived);
+    const lv1 = visible.find(k => (k.level || 1) === 1);
+    const lv2s = visible.filter(k => (k.level || 1) === 2);
+    const lv3s = visible.filter(k => (k.level || 1) === 3);
+
+    // Lv.2 ごとに配下の Lv.3 平均値を current_value に反映（パーセンテージ表示用）
+    for (const l2 of lv2s) {
+      const children = lv3s.filter(c => c.parent_kpi_id === l2.id);
+      if (children.length === 0) continue;
+      const avgP = children.reduce((s, c) => s + this.kpiProgress(c), 0) / children.length;
+      // current_value = start_value + (target - start) * (avgP/100)
+      const range = (l2.target_value || 0) - (l2.start_value || 0);
+      const newVal = (l2.start_value || 0) + range * (avgP / 100);
+      await db.updateKPI(l2.id, { current_value: newVal }).catch(() => {});
+    }
+
+    // Lv.1 は Lv.2 の平均
+    if (lv1) {
+      if (lv2s.length > 0) {
+        const updated = await db.getKPIs(projectId);
+        const newLv2s = updated.filter(k => (k.level || 1) === 2 && !k.archived);
+        const avgP = newLv2s.reduce((s, c) => s + this.kpiProgress(c), 0) / newLv2s.length;
+        const range = (lv1.target_value || 0) - (lv1.start_value || 0);
+        const newVal = (lv1.start_value || 0) + range * (avgP / 100);
+        await db.updateKPI(lv1.id, { current_value: newVal }).catch(() => {});
+      }
+    }
+  },
+
   async recalculateProgress(projectId) {
     const project = this.state.projects.find(p => p.id === projectId);
     if (!project) return;
     let progress = 0;
 
     if (project.solution_type === 'kpi') {
+      // Lv.3 KPI を集計（Lv.3 がなければフォールバックで全KPI）
       const kpis = await db.getKPIs(projectId);
-      if (kpis.length > 0) {
-        const sum = kpis.reduce((s, k) => {
-          const range = k.target_value - k.start_value;
-          const p = range !== 0 ? ((k.current_value - k.start_value) / range) * 100 : 0;
-          return s + Math.max(0, Math.min(100, p));
-        }, 0);
-        progress = Math.round(sum / kpis.length);
+      const visible = kpis.filter(k => !k.archived);
+      const lv3 = visible.filter(k => (k.level || 1) === 3);
+      const target = lv3.length > 0 ? lv3 : visible;
+      if (target.length > 0) {
+        const sum = target.reduce((s, k) => s + this.kpiProgress(k), 0);
+        progress = Math.round(sum / target.length);
       }
+      // Lv.2 / Lv.1 を再計算して反映
+      await this.rollupKpiParents(projectId);
     } else {
       const milestones = await db.getMilestones(projectId);
-      if (milestones.length > 0) {
-        const done = milestones.filter(m => m.status === 'completed').length;
-        progress = Math.round((done / milestones.length) * 100);
+      const visible = milestones.filter(m => !m.archived);
+      if (visible.length > 0) {
+        const done = visible.filter(m => m.status === 'completed').length;
+        progress = Math.round((done / visible.length) * 100);
       }
     }
 
