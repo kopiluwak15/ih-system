@@ -1576,40 +1576,50 @@ const App = {
     if (!milestones || milestones.length === 0) {
       return '<p class="text-muted" style="text-align:center;padding:20px;">マイルストーン未設定</p>';
     }
-    // archived を除外
-    const visible = milestones.filter(m => !m.archived);
-    const sorted = [...visible].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+    // 全フェーズを表示（archived 含む）。進捗計算は完了報告（archived + note）ベース
+    const sorted = [...milestones].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     const isCEO = auth.isCEO();
+    const total = milestones.length;
+    const reported = milestones.filter(m => m.archived && m.completion_note).length;
 
-    return `<div class="ms-timeline ms-timeline-view">
+    return `<div style="margin-bottom:10px;padding:10px 14px;background:var(--gray-50);border-radius:8px;font-size:12px;display:flex;justify-content:space-between;align-items:center;">
+      <span>進捗カウント：完了報告済み <strong>${reported}</strong> / 全 <strong>${total}</strong> フェーズ</span>
+      <strong style="color:var(--primary);">${total > 0 ? Math.round((reported / total) * 100) : 0}%</strong>
+    </div>
+    <div class="ms-timeline ms-timeline-view">
       ${sorted.map((m, i) => {
+        const isReported = m.archived && m.completion_note;
         const isDone = m.status === 'completed';
         const isProgress = m.status === 'in_progress';
-        const numBg = isDone
+        const numBg = isReported
           ? 'linear-gradient(135deg, #10b981, #047857)'
-          : isProgress
+          : isDone
             ? 'linear-gradient(135deg, #3b82f6, #1e40af)'
-            : 'linear-gradient(135deg, #9ca3af, #6b7280)';
-        const bodyBg = isDone
+            : isProgress
+              ? 'linear-gradient(135deg, #3b82f6, #1e40af)'
+              : 'linear-gradient(135deg, #9ca3af, #6b7280)';
+        const bodyBg = isReported
           ? 'linear-gradient(135deg, #ecfdf5, #d1fae5)'
-          : isProgress
+          : isDone
             ? 'linear-gradient(135deg, #eff6ff, #dbeafe)'
-            : 'linear-gradient(135deg, var(--gray-50), var(--gray-100))';
-        const borderColor = isDone ? '#10b981' : isProgress ? '#3b82f6' : '#d1d5db';
-        const icon = isDone ? '✅' : isProgress ? '🔄' : '⏳';
+            : isProgress
+              ? 'linear-gradient(135deg, #eff6ff, #dbeafe)'
+              : 'linear-gradient(135deg, var(--gray-50), var(--gray-100))';
+        const borderColor = isReported ? '#10b981' : (isDone || isProgress) ? '#3b82f6' : '#d1d5db';
+        const icon = isReported ? '✅' : isDone ? '🔵' : isProgress ? '🔄' : '⏳';
 
         return `<div class="ms-phase ms-phase-view">
-          <div class="ms-phase-num" style="background:${numBg};">${i + 1}</div>
+          <div class="ms-phase-num" style="background:${numBg};">${isReported ? '✓' : (i + 1)}</div>
           <div class="ms-phase-body" style="background:${bodyBg};border-color:${borderColor};">
-            <div class="ms-view-title">${icon} ${m.title}</div>
+            <div class="ms-view-title">${icon} ${m.title} ${isReported ? '<span class="badge badge-success" style="font-size:10px;margin-left:6px;">完了報告済み</span>' : ''}</div>
             ${m.description ? `<div class="ms-view-desc">${m.description}</div>` : ''}
+            ${isReported && m.completion_note ? `<div style="margin-top:6px;padding:8px 10px;background:rgba(16,185,129,0.1);border-radius:6px;font-size:12px;color:#065f46;">📝 ${m.completion_note}</div>` : ''}
             <div class="ms-view-meta">
               ${m.due_date ? `<span>📅 期限 ${m.due_date}</span>` : ''}
-              ${m.completed_at ? `<span style="color:var(--success);">✓ 完了 ${this.formatDate(m.completed_at)}</span>` : ''}
+              ${m.archived_at ? `<span style="color:var(--success);">✓ 完了報告 ${this.formatDate(m.archived_at)}</span>` : (m.completed_at ? `<span style="color:var(--primary);">完了マーク ${this.formatDate(m.completed_at)}</span>` : '')}
             </div>
             <div style="display:flex;gap:4px;margin-top:8px;">
-              ${!isDone ? `<button class="btn btn-sm btn-success" onclick="event.stopPropagation();App.completeMilestone('${m.id}', '${m.title.replace(/'/g, "\\'")}');">🏁 完了報告</button>` : ''}
-              ${isDone && !m.archived ? `<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();App.archiveMilestone('${m.id}', '${m.title.replace(/'/g, "\\'")}');">📦 アーカイブ</button>` : ''}
+              ${!isReported ? `<button class="btn btn-sm btn-success" onclick="event.stopPropagation();App.completeMilestone('${m.id}', '${m.title.replace(/'/g, "\\'")}');">🏁 完了報告</button>` : ''}
               ${isCEO ? `<button class="btn btn-sm" style="background:none;border:none;color:var(--gray-400);cursor:pointer;padding:2px 4px;font-size:13px;margin-left:auto;" title="完全削除" onclick="event.stopPropagation();App.ceoDeleteMilestone('${m.id}', '${m.title.replace(/'/g, "\\'")}');">🗑</button>` : ''}
             </div>
           </div>
@@ -3349,11 +3359,14 @@ const App = {
       // Lv.2 / Lv.1 を再計算して反映
       await this.rollupKpiParents(projectId);
     } else {
+      // マイルストーン: 完了報告済み（archived + completion_note あり）のみ進捗にカウント
       const milestones = await db.getMilestones(projectId);
-      const visible = milestones.filter(m => !m.archived);
-      if (visible.length > 0) {
-        const done = visible.filter(m => m.status === 'completed').length;
-        progress = Math.round((done / visible.length) * 100);
+      const total = milestones.length;
+      if (total > 0) {
+        const done = milestones.filter(m =>
+          m.archived === true && m.completion_note && m.completion_note.trim().length > 0
+        ).length;
+        progress = Math.round((done / total) * 100);
       }
     }
 
