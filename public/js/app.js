@@ -1701,7 +1701,8 @@ const App = {
     myProjects.forEach(p => {
       const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
       const company = unit ? this.state.companies.find(c => c.id === unit.company_id) : null;
-      const hasDraft = !!localStorage.getItem('design_draft_' + p.id);
+      const hasDraft = this.isDraftValid(p.id);
+      const isRejected = !!p.rejection_comment;
       html += `<div class="card" ${p.rejection_comment ? 'style="border-left:4px solid var(--danger);"' : ''}>
         <div class="card-header">
           <div class="card-title">${p.title}</div>
@@ -1716,10 +1717,11 @@ const App = {
             <div style="font-size:12px;font-weight:600;color:#991b1b;margin-bottom:4px;">⚠️ CEO からの差し戻しコメント</div>
             <div style="font-size:13px;color:#7f1d1d;line-height:1.6;white-space:pre-wrap;">${p.rejection_comment}</div>
             ${p.rejected_at ? `<div style="font-size:10px;color:#991b1b;margin-top:6px;">差し戻し: ${this.formatDate(p.rejected_at)}</div>` : ''}
+            <div style="font-size:11px;color:#7f1d1d;margin-top:8px;background:rgba(255,255,255,0.5);padding:6px 8px;border-radius:4px;">📦 前回の設計は履歴にアーカイブされました。コメントを参考に新規で設計してください。</div>
           </div>
         ` : ''}
         ${hasDraft ? `<div style="background:#dbeafe;color:#1e40af;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:8px;">📝 作成中の下書きが保存されています</div>` : ''}
-        <button class="btn btn-primary btn-sm" onclick="App.openDesignModal('${p.id}')">${hasDraft ? '下書きを開く' : '設計する'}</button>
+        <button class="btn btn-primary btn-sm" onclick="App.openDesignModal('${p.id}')">${isRejected ? '🆕 新規に設計する' : (hasDraft ? '下書きを開く' : '設計する')}</button>
       </div>`;
     });
     container.innerHTML = html;
@@ -2213,8 +2215,37 @@ const App = {
   loadDesignDraft(projectId) {
     try {
       const json = localStorage.getItem('design_draft_' + projectId);
-      return json ? JSON.parse(json) : null;
+      if (!json) return null;
+      const draft = JSON.parse(json);
+      // 差し戻し後の下書きは破棄
+      const project = this.state.projects.find(p => p.id === projectId);
+      if (project && project.rejected_at && draft.savedAt) {
+        const rejTime = new Date(project.rejected_at).getTime();
+        if (rejTime > draft.savedAt) {
+          localStorage.removeItem('design_draft_' + projectId);
+          return null;
+        }
+      }
+      return draft;
     } catch { return null; }
+  },
+
+  // 差し戻し後かどうか（担当者の renderDesign カード判定用）
+  isDraftValid(projectId) {
+    try {
+      const json = localStorage.getItem('design_draft_' + projectId);
+      if (!json) return false;
+      const draft = JSON.parse(json);
+      const project = this.state.projects.find(p => p.id === projectId);
+      if (project && project.rejected_at && draft.savedAt) {
+        const rejTime = new Date(project.rejected_at).getTime();
+        if (rejTime > draft.savedAt) {
+          localStorage.removeItem('design_draft_' + projectId);
+          return false;
+        }
+      }
+      return true;
+    } catch { return false; }
   },
 
   attachAutoSave(projectId, solutionType) {
