@@ -1946,6 +1946,14 @@ const App = {
           );
           if (!ok) return false;
 
+          // ★ 重要: 既存の非アーカイブ KPI を削除（重複防止）
+          const existingKpis = await db.getKPIs(projectId);
+          for (const ek of existingKpis) {
+            if (!ek.archived) {
+              await db.deleteKPI(ek.id).catch(() => {});
+            }
+          }
+
           // Save Level 1
           const lv1Data = await db.createKPI({
             project_id: projectId, level: 1, parent_kpi_id: null,
@@ -2005,6 +2013,14 @@ const App = {
           );
           if (!ok) return false;
 
+          // ★ 重要: 既存の非アーカイブ Milestone を削除（重複防止）
+          const existingMs = await db.getMilestones(projectId);
+          for (const em of existingMs) {
+            if (!em.archived) {
+              await db.deleteMilestone(em.id).catch(() => {});
+            }
+          }
+
           let order = 0;
           for (const row of valid) {
             await db.createMilestone({
@@ -2042,6 +2058,18 @@ const App = {
       } catch (e) {
         this.toast('エラー: ' + e.message, 'error');
         return false;
+      }
+    }, false, {
+      submitLabel: '📤 提出',
+      submitClass: 'btn-success',
+      extraButton: {
+        label: '💾 保存（下書き）',
+        class: 'btn-secondary',
+        onClick: async () => {
+          this.saveDesignDraft(projectId, p.solution_type);
+          this.toast('下書きを保存しました');
+          return false; // モーダルを閉じない
+        }
       }
     });
 
