@@ -1960,9 +1960,14 @@ const App = {
 
           // ★ 重要: 既存の非アーカイブ KPI を削除（重複防止）
           const existingKpis = await db.getKPIs(projectId);
-          for (const ek of existingKpis) {
-            if (!ek.archived) {
-              await db.deleteKPI(ek.id).catch(() => {});
+          const toDelete = existingKpis.filter(ek => !ek.archived);
+          console.log('[Submit] 削除する既存KPI数:', toDelete.length);
+          for (const ek of toDelete) {
+            try {
+              await db.deleteKPI(ek.id);
+            } catch (delErr) {
+              console.error('[Submit] KPI削除エラー:', ek.id, delErr);
+              throw new Error('既存KPI削除失敗: ' + delErr.message);
             }
           }
 
@@ -2027,9 +2032,14 @@ const App = {
 
           // ★ 重要: 既存の非アーカイブ Milestone を削除（重複防止）
           const existingMs = await db.getMilestones(projectId);
-          for (const em of existingMs) {
-            if (!em.archived) {
-              await db.deleteMilestone(em.id).catch(() => {});
+          const msToDelete = existingMs.filter(em => !em.archived);
+          console.log('[Submit] 削除する既存マイルストーン数:', msToDelete.length);
+          for (const em of msToDelete) {
+            try {
+              await db.deleteMilestone(em.id);
+            } catch (delErr) {
+              console.error('[Submit] マイルストーン削除エラー:', em.id, delErr);
+              throw new Error('既存マイルストーン削除失敗: ' + delErr.message);
             }
           }
 
@@ -2045,10 +2055,13 @@ const App = {
           }
         }
 
-        // ステータスを承認待ちに（差し戻しコメントをクリア）
+        // ステータスを承認待ちに（差し戻しコメントをクリア + 提出時刻スタンプ）
+        const nowIso = new Date().toISOString();
         await db.updateProject(projectId, {
           status: 'pending_approval',
-          rejection_comment: null
+          rejection_comment: null,
+          rejected_at: null,
+          submitted_at: nowIso
         });
         // CEO に通知
         const ceos = this.state.staff.filter(s => s.role === 'ceo');
@@ -2219,7 +2232,10 @@ const App = {
         indicator.textContent = '✓ ' + new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' に自動保存しました';
         indicator.style.color = 'var(--success)';
       }
-    } catch (e) { /* silent */ }
+    } catch (e) {
+      console.error('saveDesignDraft error:', e);
+      this.toast('下書き保存エラー: ' + e.message, 'error');
+    }
   },
 
   loadDesignDraft(projectId) {
@@ -2604,30 +2620,46 @@ const App = {
         // 既存の KPI/Milestone をアーカイブ（履歴保存）
         const now = new Date().toISOString();
         const existingKpis = await db.getKPIs(id);
+        let kpiArchiveCount = 0;
         for (const k of existingKpis) {
           if (!k.archived) {
-            await db.updateKPI(k.id, {
-              archived: true,
-              archived_at: now,
-              completion_note: '【差し戻しによる履歴化】' + comment.substring(0, 100)
-            }).catch(() => {});
+            try {
+              await db.updateKPI(k.id, {
+                archived: true,
+                archived_at: now,
+                completion_note: '【差し戻しによる履歴化】' + comment.substring(0, 100)
+              });
+              kpiArchiveCount++;
+            } catch (archErr) {
+              console.error('[Reject] KPIアーカイブ失敗:', k.id, archErr);
+              throw new Error('KPIアーカイブ失敗: ' + archErr.message);
+            }
           }
         }
         const existingMs = await db.getMilestones(id);
+        let msArchiveCount = 0;
         for (const m of existingMs) {
           if (!m.archived) {
-            await db.updateMilestone(m.id, {
-              archived: true,
-              archived_at: now,
-              completion_note: '【差し戻しによる履歴化】' + comment.substring(0, 100)
-            }).catch(() => {});
+            try {
+              await db.updateMilestone(m.id, {
+                archived: true,
+                archived_at: now,
+                completion_note: '【差し戻しによる履歴化】' + comment.substring(0, 100)
+              });
+              msArchiveCount++;
+            } catch (archErr) {
+              console.error('[Reject] マイルストーンアーカイブ失敗:', m.id, archErr);
+              throw new Error('マイルストーンアーカイブ失敗: ' + archErr.message);
+            }
           }
         }
+        console.log('[Reject] アーカイブ完了:', { kpi: kpiArchiveCount, milestone: msArchiveCount });
 
         await db.updateProject(id, {
           status: 'pending_design',
           rejection_comment: comment,
-          rejected_at: now
+          rejected_at: now,
+          submitted_at: null
         });
         await db.createNotification({
           recipient_id: p.assigned_to,
