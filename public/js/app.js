@@ -1304,10 +1304,20 @@ const App = {
 
     let detailContent = '';
     if (p.solution_type === 'kpi') {
-      const kpis = await db.getKPIs(id);
+      // 現在の設計のみ（archived = 過去の差し戻し履歴は除外）
+      const kpis = (await db.getKPIs(id)).filter(k => !k.archived);
       detailContent = this.renderKpiChartView(kpis);
     } else {
-      const milestones = await db.getMilestones(id);
+      // 現在の設計のみ表示 + 完了報告済み（差し戻し履歴は除外）
+      const milestones = (await db.getMilestones(id)).filter(m => {
+        // 差し戻し履歴は除外（completion_note に「差し戻しによる履歴化」「解決方法変更」が含まれる archived）
+        if (m.archived && m.completion_note &&
+            (m.completion_note.includes('差し戻しによる履歴化') ||
+             m.completion_note.includes('解決方法変更により履歴化'))) {
+          return false;
+        }
+        return true;
+      });
       detailContent = this.renderMilestoneTimelineView(milestones);
     }
 
@@ -3419,10 +3429,19 @@ const App = {
       await this.rollupKpiParents(projectId);
     } else {
       // マイルストーン: 完了報告済み（archived + completion_note あり）のみ進捗にカウント
-      const milestones = await db.getMilestones(projectId);
-      const total = milestones.length;
+      // 差し戻し履歴・解決方法変更履歴は除外
+      const rawMs = await db.getMilestones(projectId);
+      const current = rawMs.filter(m => {
+        if (m.archived && m.completion_note &&
+            (m.completion_note.includes('差し戻しによる履歴化') ||
+             m.completion_note.includes('解決方法変更により履歴化'))) {
+          return false;
+        }
+        return true;
+      });
+      const total = current.length;
       if (total > 0) {
-        const done = milestones.filter(m =>
+        const done = current.filter(m =>
           m.archived === true && m.completion_note && m.completion_note.trim().length > 0
         ).length;
         progress = Math.round((done / total) * 100);
