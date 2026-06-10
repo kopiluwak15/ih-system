@@ -3293,15 +3293,180 @@ const App = {
     }
   },
 
-  // ===== CEO 履歴タブ（プレースホルダー） =====
+  // ===== CEO 履歴タブ（タイムライン日報の閲覧） =====
   async renderCEOLogsHistory() {
     const pane = document.getElementById('logsTabHistory');
-    pane.innerHTML = `
-      <div class="card">
-        <div class="card-title">📚 履歴（CEO 専用、Phase 2 で実装予定）</div>
-        <p class="text-muted" style="font-size:13px;margin-top:8px;">スタッフ別の付箋実績・想定時間と実績の差分・停滞付箋アラートなどを表示予定。</p>
+    pane.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div>';
+
+    let reports = [];
+    try {
+      const all = await db.getDailyReports();
+      reports = all.filter(r => (r.status || 'submitted') === 'submitted')
+        .sort((a, b) => (b.submitted_at || '').localeCompare(a.submitted_at || ''));
+    } catch (e) {
+      pane.innerHTML = `<div style="color:var(--danger);padding:20px;">読み込みエラー: ${e.message}</div>`;
+      return;
+    }
+
+    if (!this.state.histFilter) this.state.histFilter = { staffId: '', dateFrom: '', dateTo: '' };
+    const flt = this.state.histFilter;
+    let list = reports;
+    if (flt.staffId) list = list.filter(r => r.staff_id === flt.staffId);
+    if (flt.dateFrom) list = list.filter(r => r.report_date >= flt.dateFrom);
+    if (flt.dateTo) list = list.filter(r => r.report_date <= flt.dateTo);
+
+    // 未提出スタッフ警告（今日基準）
+    const today = new Date().toISOString().slice(0, 10);
+    const submittedToday = new Set(reports.filter(r => r.report_date === today).map(r => r.staff_id));
+    const notSubmitted = this.state.staff.filter(s => s.is_active && s.role !== 'ceo' && !submittedToday.has(s.id));
+
+    const staffOptions = this.state.staff
+      .filter(s => s.role !== 'ceo')
+      .map(s => `<option value="${s.id}" ${flt.staffId === s.id ? 'selected' : ''}>${s.name}</option>`)
+      .join('');
+
+    let html = '';
+
+    if (notSubmitted.length > 0) {
+      html += `<div class="card" style="background:#fef3c7;border-color:#fbbf24;margin-bottom:14px;padding:12px 14px;">
+        <div style="font-weight:700;font-size:13px;color:#92400e;margin-bottom:6px;">⚠️ 本日 (${today}) 未提出: ${notSubmitted.length}名</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          ${notSubmitted.map(s => `<span class="badge badge-warning">${s.name}</span>`).join('')}
+        </div>
+      </div>`;
+    }
+
+    // フィルター
+    html += `<div class="tl-toolbar" style="margin-bottom:12px;">
+      <label>スタッフ:</label>
+      <select id="histStaff" class="form-select" style="max-width:180px;">
+        <option value="">-- 全員 --</option>
+        ${staffOptions}
+      </select>
+      <label>期間:</label>
+      <input type="date" id="histFrom" class="form-input" value="${flt.dateFrom}" style="max-width:160px;">
+      <span>〜</span>
+      <input type="date" id="histTo" class="form-input" value="${flt.dateTo}" style="max-width:160px;">
+      <button class="btn btn-sm btn-secondary" onclick="App.clearHistFilter()">クリア</button>
+      <span style="flex:1;"></span>
+      <span class="text-muted" style="font-size:11px;">${list.length}件表示中（全${reports.length}件）</span>
+    </div>`;
+
+    if (list.length === 0) {
+      html += this.emptyState('📚', '日報なし', 'スタッフが提出した日報がここに表示されます');
+    } else {
+      list.slice(0, 50).forEach(r => {
+        html += this.renderHistoryReportCard(r);
+      });
+    }
+
+    pane.innerHTML = html;
+
+    document.getElementById('histStaff').addEventListener('change', (e) => {
+      this.state.histFilter.staffId = e.target.value;
+      this.renderCEOLogsHistory();
+    });
+    document.getElementById('histFrom').addEventListener('change', (e) => {
+      this.state.histFilter.dateFrom = e.target.value;
+      this.renderCEOLogsHistory();
+    });
+    document.getElementById('histTo').addEventListener('change', (e) => {
+      this.state.histFilter.dateTo = e.target.value;
+      this.renderCEOLogsHistory();
+    });
+  },
+
+  clearHistFilter() {
+    this.state.histFilter = { staffId: '', dateFrom: '', dateTo: '' };
+    this.renderCEOLogsHistory();
+  },
+
+  renderHistoryReportCard(r) {
+    const staff = this.state.staff.find(s => s.id === r.staff_id);
+    const summary = Array.isArray(r.timeline_summary) ? r.timeline_summary : [];
+    const tomorrow = Array.isArray(r.tomorrow_schedule) ? r.tomorrow_schedule : [];
+
+    const done = summary.filter(s => s.action === 'done').length;
+    const cont = summary.filter(s => s.action === 'continue').length;
+    const skip = summary.filter(s => s.action === 'skip').length;
+
+    // 想定 vs 実績差分
+    const totalEst = summary.reduce((sum, s) => {
+      // 該当付箋を探して想定時間取得は無理（stickyMap がここにない）
+      // 簡易：summary に actual_minutes だけある
+      return sum + (s.actual_minutes || 0);
+    }, 0);
+
+    let summaryHtml = '';
+    if (summary.length === 0) {
+      summaryHtml = '<p class="text-muted" style="font-size:12px;">タイムライン情報なし（旧形式の日報）</p>';
+    } else {
+      summaryHtml = summary.map(s => {
+        const actionLabel = { done: '✅ 完了', continue: '🔄 継続', skip: '⏸ 見送り' }[s.action] || s.action;
+        const actionColor = { done: '#10b981', continue: '#3b82f6', skip: '#f59e0b' }[s.action] || '#6b7280';
+        return `<div style="padding:8px 10px;background:var(--gray-50);border-left:3px solid ${actionColor};border-radius:6px;margin-bottom:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="font-weight:600;font-size:12px;">${this.stickyTitle(s.sticky_id) || '(削除済み付箋)'}</span>
+            <span style="font-size:10px;font-weight:600;color:${actionColor};">${actionLabel} ・ ${s.actual_minutes || 0}分</span>
+          </div>
+          ${s.comment ? `<div style="font-size:11px;color:var(--gray-700);margin-top:4px;">${s.comment}</div>` : ''}
+        </div>`;
+      }).join('');
+    }
+
+    let tomorrowHtml = '';
+    if (tomorrow.length > 0) {
+      tomorrowHtml = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--gray-100);">
+        <div style="font-size:12px;font-weight:700;color:var(--gray-700);margin-bottom:6px;">🌅 翌日の予定（${tomorrow.length}件）</div>
+        ${tomorrow.map(ts => {
+          const sh = String(Math.floor(ts.start_minutes / 60)).padStart(2, '0');
+          const sm = String(ts.start_minutes % 60).padStart(2, '0');
+          return `<div style="font-size:11px;color:var(--gray-700);padding:2px 0;">${sh}:${sm} - ${this.stickyTitle(ts.sticky_id) || '?'}（${ts.duration_minutes}分）</div>`;
+        }).join('')}
+      </div>`;
+    }
+
+    return `<div class="card" style="margin-bottom:10px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${r.report_date} ${staff?.name ? `・ ${staff.name}` : ''}</div>
+          <div class="text-muted" style="font-size:11px;margin-top:2px;">提出 ${r.submitted_at ? this.formatDate(r.submitted_at) : '-'}</div>
+        </div>
+        <div style="display:flex;gap:4px;">
+          <span class="badge badge-success">✅${done}</span>
+          ${cont > 0 ? `<span class="badge badge-info">🔄${cont}</span>` : ''}
+          ${skip > 0 ? `<span class="badge badge-warning">⏸${skip}</span>` : ''}
+          <span class="badge badge-gray">⏱${totalEst}分</span>
+        </div>
       </div>
-    `;
+      ${summaryHtml}
+      ${r.comment ? `<div style="margin-top:10px;padding:10px 12px;background:var(--primary-light);border-radius:6px;font-size:12px;color:var(--gray-800);">
+        <strong>💬 所感:</strong> ${r.comment}
+      </div>` : ''}
+      ${tomorrowHtml}
+    </div>`;
+  },
+
+  // sticky_id からタイトルを取得（キャッシュ）
+  stickyTitle(stickyId) {
+    if (!stickyId) return null;
+    if (!this._stickyTitleCache) this._stickyTitleCache = {};
+    if (this._stickyTitleCache[stickyId]) return this._stickyTitleCache[stickyId];
+    // 非同期取得は履歴表示時に難しいので fetch して内部キャッシュ更新
+    db.request('GET', `/stickies?id=eq.${stickyId}&select=title`).then(arr => {
+      if (arr && arr[0]) {
+        this._stickyTitleCache[stickyId] = arr[0].title;
+        // 再描画
+        if (this.state.currentPage === 'logs') {
+          const histTab = document.querySelector('.logs-tab.active');
+          if (histTab?.dataset.tab === 'history') {
+            // タイトル要素を find して書き換えるのではなく再レンダ
+            this.renderCEOLogsHistory();
+          }
+        }
+      }
+    }).catch(() => {});
+    return null;
   },
 
   // ===== 旧 renderLogs の中身（互換用に残置 - 未使用） =====
