@@ -195,16 +195,26 @@
       <div id="approvalContent"></div>
     </section>
 
-    <!-- Daily Logs -->
+    <!-- Daily Logs (タイムライン日報) -->
     <section id="logs" class="page">
       <div class="page-header">
         <div>
           <h2 class="page-title">📝 日報</h2>
-          <p class="page-subtitle">本日の業務報告（プロジェクト進捗・課題・タスク完了・ルーティン）</p>
+          <p class="page-subtitle">付箋とタイムラインで業務を可視化</p>
         </div>
-        <button class="btn btn-primary" id="addLogBtn" data-non-ceo>+ 今日の日報を書く</button>
       </div>
-      <div id="logsContent"></div>
+
+      <div class="settings-tabs" id="logsTabs">
+        <button class="logs-tab active" data-tab="timeline">📌 タイムライン作成</button>
+        <button class="logs-tab" data-tab="report">📝 日報報告作成</button>
+        <button class="logs-tab" data-tab="archive">📦 アーカイブ</button>
+        <button class="logs-tab" data-tab="history" data-ceo-only>📚 履歴（CEO）</button>
+      </div>
+
+      <div id="logsTabTimeline" class="logs-tab-pane active"></div>
+      <div id="logsTabReport" class="logs-tab-pane"></div>
+      <div id="logsTabArchive" class="logs-tab-pane"></div>
+      <div id="logsTabHistory" class="logs-tab-pane"></div>
     </section>
 
     <!-- Task Instructions (タスク指示) -->

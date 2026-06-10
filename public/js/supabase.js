@@ -161,6 +161,39 @@ class SupabaseAPI {
     return this.request('POST', '/daily_logs', data);
   }
 
+  // ===== Stickies (付箋) =====
+  async getStickies(staffId, status = null) {
+    let q = `?staff_id=eq.${staffId}&order=created_at.desc`;
+    if (status) q += `&status=eq.${status}`;
+    return this.request('GET', `/stickies${q}`);
+  }
+  async createSticky(data) {
+    return this.request('POST', '/stickies', data);
+  }
+  async updateSticky(id, data) {
+    return this.request('PATCH', `/stickies?id=eq.${id}`, data);
+  }
+  async deleteSticky(id) {
+    return this.request('DELETE', `/stickies?id=eq.${id}`);
+  }
+
+  // ===== Timeline Slots =====
+  async getTimelineSlots(staffId, date) {
+    return this.request('GET', `/timeline_slots?staff_id=eq.${staffId}&schedule_date=eq.${date}&order=start_minutes.asc`);
+  }
+  async createTimelineSlot(data) {
+    return this.request('POST', '/timeline_slots', data);
+  }
+  async updateTimelineSlot(id, data) {
+    return this.request('PATCH', `/timeline_slots?id=eq.${id}`, data);
+  }
+  async deleteTimelineSlot(id) {
+    return this.request('DELETE', `/timeline_slots?id=eq.${id}`);
+  }
+  async deleteTimelineSlotsByDate(staffId, date) {
+    return this.request('DELETE', `/timeline_slots?staff_id=eq.${staffId}&schedule_date=eq.${date}`);
+  }
+
   // ===== Daily Reports (構造化日報) =====
   async getDailyReports(filter = {}) {
     let query = '?order=report_date.desc,created_at.desc';

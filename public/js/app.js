@@ -2681,6 +2681,350 @@ const App = {
 
   // ===== Daily Logs =====
   async renderLogs() {
+    this.setupLogsTabs();
+    const active = document.querySelector('.logs-tab.active');
+    const tabName = active?.dataset.tab || 'timeline';
+    await this.dispatchLogsTab(tabName);
+  },
+
+  setupLogsTabs() {
+    if (this._logsTabsSetup) return;
+    this._logsTabsSetup = true;
+    document.querySelectorAll('.logs-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.logs-tab').forEach(t => t.classList.toggle('active', t === tab));
+        document.querySelectorAll('.logs-tab-pane').forEach(p => p.classList.remove('active'));
+        const tabName = tab.dataset.tab;
+        const paneId = 'logsTab' + tabName.charAt(0).toUpperCase() + tabName.slice(1);
+        document.getElementById(paneId)?.classList.add('active');
+        this.dispatchLogsTab(tabName);
+      });
+    });
+  },
+
+  async dispatchLogsTab(tabName) {
+    if (tabName === 'timeline') await this.renderTimelineTab();
+    else if (tabName === 'report') await this.renderDailyReportTab();
+    else if (tabName === 'archive') await this.renderStickyArchiveTab();
+    else if (tabName === 'history' && auth.isCEO()) await this.renderCEOLogsHistory();
+  },
+
+  // ===== Timeline タブ =====
+  async renderTimelineTab() {
+    const pane = document.getElementById('logsTabTimeline');
+    if (!this.state.tlDate) {
+      const t = new Date();
+      t.setDate(t.getDate() + 1);
+      this.state.tlDate = t.toISOString().slice(0, 10);
+    }
+    const staffId = auth.currentUser.id;
+    let stickies = [];
+    let slots = [];
+    try {
+      stickies = await db.getStickies(staffId, 'active');
+      slots = await db.getTimelineSlots(staffId, this.state.tlDate);
+    } catch (e) {
+      pane.innerHTML = `<div class="card" style="border-color:var(--danger);"><div style="color:var(--danger);font-size:13px;">付箋テーブル未作成です。Supabase で SQL を実行してください。<br><code style="font-size:11px;">${e.message}</code></div></div>`;
+      return;
+    }
+
+    const placedIds = new Set(slots.map(s => s.sticky_id));
+    const unplaced = stickies.filter(s => !placedIds.has(s.id));
+
+    // 付箋ボード（数に応じてサイズ調整）
+    const manyClass = stickies.length > 12 ? 'many' : '';
+
+    let rowsHtml = '';
+    for (let i = 0; i < 48; i++) {
+      const minutes = i * 30;
+      const hh = String(Math.floor(minutes / 60)).padStart(2, '0');
+      const mm = String(minutes % 60).padStart(2, '0');
+      const isHour = mm === '00';
+      rowsHtml += `<div class="tl-row ${isHour ? 'hour-marker' : ''}" data-min="${minutes}">
+        <div class="tl-row-label">${isHour ? hh + ':00' : ''}</div>
+        <div class="tl-row-slot" data-min="${minutes}"></div>
+      </div>`;
+    }
+
+    pane.innerHTML = `
+      <div class="tl-toolbar">
+        <label>📅 対象日:</label>
+        <input type="date" id="tlDate" class="form-input" value="${this.state.tlDate}" style="max-width:180px;">
+        <button class="btn btn-sm btn-secondary" onclick="App.setTlDate(1)">明日</button>
+        <button class="btn btn-sm btn-secondary" onclick="App.setTlDate(2)">明後日</button>
+        <span style="flex:1;"></span>
+        <span class="text-muted" style="font-size:11px;">配置: ${slots.length}件 / 未配置: ${unplaced.length}件</span>
+        <button class="btn btn-sm btn-danger" onclick="App.clearTimeline()">🗑 配置クリア</button>
+      </div>
+
+      <div class="tl-layout">
+        <div class="tl-timeline" id="tlTimeline">${rowsHtml}</div>
+        <div class="tl-board">
+          <div class="tl-board-header">
+            <div class="tl-board-title">📌 付箋（${stickies.length}件）</div>
+            <button class="btn btn-sm btn-primary" onclick="App.openStickyModal()">+ 付箋作成</button>
+          </div>
+          <div class="tl-board-stickies ${manyClass} ${stickies.length === 0 ? 'empty' : ''}" id="tlBoard">
+            ${stickies.length === 0 ? 'まず付箋を作成してください' : stickies.map(s => this.stickyCardHtml(s, placedIds.has(s.id))).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+
+    // 配置済み付箋を絶対配置で描画
+    for (const slot of slots) {
+      const sticky = stickies.find(s => s.id === slot.sticky_id);
+      if (!sticky) continue;
+      this.placeStickyOnTimeline(sticky, slot);
+    }
+
+    this.setupTimelineDnD();
+    document.getElementById('tlDate').addEventListener('change', (e) => {
+      this.state.tlDate = e.target.value;
+      this.renderTimelineTab();
+    });
+  },
+
+  setTlDate(daysFromToday) {
+    const t = new Date();
+    t.setDate(t.getDate() + daysFromToday);
+    this.state.tlDate = t.toISOString().slice(0, 10);
+    this.renderTimelineTab();
+  },
+
+  stickyCardHtml(s, isPlaced) {
+    const prio = s.priority || 'medium';
+    return `<div class="sticky-card priority-${prio} ${isPlaced ? 'placed' : ''}" draggable="${!isPlaced}" data-sticky-id="${s.id}" data-min="${s.estimated_minutes}">
+      <button class="sticky-card-remove" onclick="event.stopPropagation();App.deleteSticky('${s.id}')" title="削除">×</button>
+      <div class="sticky-card-title">${s.title}</div>
+      <div class="sticky-card-meta">
+        <span>⏱ ${s.estimated_minutes}分</span>
+        <span>${prio === 'high' ? '🔴' : prio === 'low' ? '🔵' : '🟡'}</span>
+      </div>
+    </div>`;
+  },
+
+  placeStickyOnTimeline(sticky, slot) {
+    const tl = document.getElementById('tlTimeline');
+    if (!tl) return;
+    const startRow = tl.querySelector(`.tl-row[data-min="${slot.start_minutes}"]`);
+    if (!startRow) return;
+    const rowH = 20; // px per 30分
+    const heightPx = Math.max(20, (slot.duration_minutes / 30) * rowH);
+    const slotEl = startRow.querySelector('.tl-row-slot');
+    if (!slotEl) return;
+
+    const div = document.createElement('div');
+    div.className = `tl-placed priority-${sticky.priority || 'medium'}`;
+    div.style.height = heightPx + 'px';
+    div.dataset.slotId = slot.id;
+    div.dataset.stickyId = sticky.id;
+    const sh = String(Math.floor(slot.start_minutes / 60)).padStart(2, '0');
+    const sm = String(slot.start_minutes % 60).padStart(2, '0');
+    const endMin = slot.start_minutes + slot.duration_minutes;
+    const eh = String(Math.floor(endMin / 60)).padStart(2, '0');
+    const em = String(endMin % 60).padStart(2, '0');
+    div.innerHTML = `
+      <button class="tl-placed-remove" onclick="event.stopPropagation();App.removePlacedSlot('${slot.id}')">×</button>
+      <div>${sticky.title}</div>
+      <div class="tl-placed-time">${sh}:${sm} - ${eh}:${em}（${slot.duration_minutes}分）</div>
+    `;
+    slotEl.appendChild(div);
+  },
+
+  setupTimelineDnD() {
+    document.querySelectorAll('.sticky-card[draggable="true"]').forEach(card => {
+      card.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/sticky-id', card.dataset.stickyId);
+        e.dataTransfer.setData('text/min', card.dataset.min);
+        e.dataTransfer.effectAllowed = 'move';
+      });
+    });
+    document.querySelectorAll('.tl-row-slot').forEach(slot => {
+      slot.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        slot.classList.add('drag-over');
+      });
+      slot.addEventListener('dragleave', () => {
+        slot.classList.remove('drag-over');
+      });
+      slot.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        slot.classList.remove('drag-over');
+        const stickyId = e.dataTransfer.getData('text/sticky-id');
+        const dur = parseInt(e.dataTransfer.getData('text/min'));
+        const startMin = parseInt(slot.dataset.min);
+        if (!stickyId || isNaN(dur) || isNaN(startMin)) return;
+        try {
+          await db.createTimelineSlot({
+            sticky_id: stickyId,
+            staff_id: auth.currentUser.id,
+            schedule_date: this.state.tlDate,
+            start_minutes: startMin,
+            duration_minutes: dur,
+            status: 'planned'
+          });
+          this.renderTimelineTab();
+        } catch (err) {
+          this.toast('配置エラー: ' + err.message, 'error');
+        }
+      });
+    });
+  },
+
+  async removePlacedSlot(slotId) {
+    try {
+      await db.deleteTimelineSlot(slotId);
+      this.renderTimelineTab();
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  async clearTimeline() {
+    if (!confirm(`${this.state.tlDate} の配置をすべてクリアしますか？\n（付箋は残ります）`)) return;
+    try {
+      await db.deleteTimelineSlotsByDate(auth.currentUser.id, this.state.tlDate);
+      this.renderTimelineTab();
+      this.toast('配置をクリアしました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  // 付箋作成モーダル
+  openStickyModal(id = null) {
+    this.showModal(id ? '付箋を編集' : '+ 新規付箋', `
+      <div class="form-group">
+        <label class="form-label">タイトル *</label>
+        <input type="text" id="st_title" class="form-input" placeholder="例: 山野さんに連絡">
+      </div>
+      <div class="form-group">
+        <label class="form-label">概要・メモ</label>
+        <textarea id="st_desc" class="form-textarea" rows="2" placeholder="任意"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">想定時間 *（分）</label>
+          <select id="st_minutes" class="form-select">
+            <option value="15">15分</option>
+            <option value="30" selected>30分</option>
+            <option value="45">45分</option>
+            <option value="60">1時間</option>
+            <option value="90">1時間30分</option>
+            <option value="120">2時間</option>
+            <option value="180">3時間</option>
+            <option value="240">4時間</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">優先度</label>
+          <select id="st_priority" class="form-select">
+            <option value="high">🔴 高</option>
+            <option value="medium" selected>🟡 中</option>
+            <option value="low">🔵 低</option>
+          </select>
+        </div>
+      </div>
+    `, async () => {
+      const title = document.getElementById('st_title').value.trim();
+      if (!title) { this.toast('タイトル必須', 'error'); return false; }
+      const data = {
+        staff_id: auth.currentUser.id,
+        title,
+        description: document.getElementById('st_desc').value.trim(),
+        estimated_minutes: parseInt(document.getElementById('st_minutes').value),
+        priority: document.getElementById('st_priority').value,
+        status: 'active'
+      };
+      try {
+        await db.createSticky(data);
+        this.toast('付箋を作成しました');
+        this.renderTimelineTab();
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    });
+  },
+
+  async deleteSticky(id) {
+    if (!confirm('この付箋を削除しますか？\n（配置済みのスロットも削除されます）')) return;
+    try {
+      await db.deleteSticky(id);
+      this.renderTimelineTab();
+      this.toast('削除しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  // ===== Sticky Archive タブ =====
+  async renderStickyArchiveTab() {
+    const pane = document.getElementById('logsTabArchive');
+    pane.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div>';
+    try {
+      const archived = await db.getStickies(auth.currentUser.id, 'archived');
+      if (archived.length === 0) {
+        pane.innerHTML = this.emptyState('📦', 'アーカイブなし', '日報送信で完了した付箋がここに残ります');
+        return;
+      }
+      let html = '<p class="text-muted mb-2" style="font-size:12px;">完了済みの付箋。AI が想定時間の参考データに使います。</p>';
+      archived.forEach(s => {
+        html += `<div class="card" style="padding:10px 14px;margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:600;font-size:13px;">${s.title}</div>
+              <div style="font-size:11px;color:var(--gray-500);margin-top:2px;">
+                想定 ${s.estimated_minutes}分 ${s.actual_minutes ? `→ 実績 ${s.actual_minutes}分` : ''}
+                ${s.archived_at ? ` ・ ${this.formatDate(s.archived_at)}` : ''}
+              </div>
+              ${s.completion_note ? `<div style="font-size:11px;color:var(--gray-700);margin-top:4px;">${s.completion_note}</div>` : ''}
+            </div>
+            <button class="btn btn-sm" style="background:none;border:none;color:var(--gray-400);" onclick="App.deleteSticky('${s.id}')">🗑</button>
+          </div>
+        </div>`;
+      });
+      pane.innerHTML = html;
+    } catch (e) {
+      pane.innerHTML = '<p style="color:var(--danger);">読み込みエラー: ' + e.message + '</p>';
+    }
+  },
+
+  // ===== 既存日報報告タブ（プレースホルダー） =====
+  async renderDailyReportTab() {
+    const pane = document.getElementById('logsTabReport');
+    pane.innerHTML = `
+      <div class="card">
+        <div class="card-title">📝 日報報告作成（Phase 2 で実装予定）</div>
+        <p class="text-muted" style="font-size:13px;margin-top:8px;line-height:1.7;">
+          Phase 2 では、タイムライン作成画面で配置した付箋に対して以下のアクションを行えるようにします：
+        </p>
+        <ul style="font-size:13px;color:var(--gray-700);line-height:1.8;margin-left:20px;margin-top:6px;">
+          <li>✅ <strong>完了</strong>：コメント付きでアーカイブ</li>
+          <li>🔄 <strong>明日も継続</strong>：翌日に持ち越し</li>
+          <li>⏸ <strong>見送り</strong>：付箋ボードに戻す（優先度ダウン）</li>
+          <li>「送信」ボタンで日報を自動生成</li>
+        </ul>
+      </div>
+    `;
+  },
+
+  // ===== CEO 履歴タブ（プレースホルダー） =====
+  async renderCEOLogsHistory() {
+    const pane = document.getElementById('logsTabHistory');
+    pane.innerHTML = `
+      <div class="card">
+        <div class="card-title">📚 履歴（CEO 専用、Phase 2 で実装予定）</div>
+        <p class="text-muted" style="font-size:13px;margin-top:8px;">スタッフ別の付箋実績・想定時間と実績の差分・停滞付箋アラートなどを表示予定。</p>
+      </div>
+    `;
+  },
+
+  // ===== 旧 renderLogs の中身（互換用に残置 - 未使用） =====
+  async _renderLogsLegacy() {
     const container = document.getElementById('logsContent');
     const isCEO = auth.isCEO();
 
