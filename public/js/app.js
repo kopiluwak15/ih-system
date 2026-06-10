@@ -2993,23 +2993,304 @@ const App = {
     }
   },
 
-  // ===== 既存日報報告タブ（プレースホルダー） =====
+  // ===== 日報報告作成タブ =====
   async renderDailyReportTab() {
     const pane = document.getElementById('logsTabReport');
-    pane.innerHTML = `
-      <div class="card">
-        <div class="card-title">📝 日報報告作成（Phase 2 で実装予定）</div>
-        <p class="text-muted" style="font-size:13px;margin-top:8px;line-height:1.7;">
-          Phase 2 では、タイムライン作成画面で配置した付箋に対して以下のアクションを行えるようにします：
-        </p>
-        <ul style="font-size:13px;color:var(--gray-700);line-height:1.8;margin-left:20px;margin-top:6px;">
-          <li>✅ <strong>完了</strong>：コメント付きでアーカイブ</li>
-          <li>🔄 <strong>明日も継続</strong>：翌日に持ち越し</li>
-          <li>⏸ <strong>見送り</strong>：付箋ボードに戻す（優先度ダウン）</li>
-          <li>「送信」ボタンで日報を自動生成</li>
-        </ul>
+    if (!this.state.reportDate) {
+      this.state.reportDate = new Date().toISOString().slice(0, 10);
+    }
+    const today = this.state.reportDate;
+    const t = new Date(today);
+    t.setDate(t.getDate() + 1);
+    const tomorrow = t.toISOString().slice(0, 10);
+
+    const staffId = auth.currentUser.id;
+    let todaySlots = [], tomorrowSlots = [], stickies = [];
+    try {
+      todaySlots = await db.getTimelineSlots(staffId, today);
+      tomorrowSlots = await db.getTimelineSlots(staffId, tomorrow);
+      stickies = await db.getStickies(staffId);
+    } catch (e) {
+      pane.innerHTML = `<div class="card" style="border-color:var(--danger);"><div style="color:var(--danger);font-size:13px;">読み込みエラー: ${e.message}</div></div>`;
+      return;
+    }
+
+    const stickyMap = {};
+    stickies.forEach(s => { stickyMap[s.id] = s; });
+
+    // 既存の draft（同日分）を取得
+    let existingDraft = null;
+    try {
+      const reports = await db.getDailyReports({ staff_id: staffId, report_date: today });
+      existingDraft = reports.find(r => (r.status || 'submitted') !== 'submitted') || null;
+    } catch {}
+
+    const draftReport = existingDraft?.timeline_summary || [];
+    const draftMap = {};
+    if (Array.isArray(draftReport)) draftReport.forEach(d => { if (d.slot_id) draftMap[d.slot_id] = d; });
+
+    let html = `
+      <div class="tl-toolbar">
+        <label>📅 報告対象日:</label>
+        <input type="date" id="reportDate" class="form-input" value="${today}" style="max-width:180px;">
+        <button class="btn btn-sm btn-secondary" onclick="App.setReportDate(0)">今日</button>
+        <button class="btn btn-sm btn-secondary" onclick="App.setReportDate(-1)">昨日</button>
+        <span style="flex:1;"></span>
+        <span class="text-muted" style="font-size:11px;">${todaySlots.length}件の付箋</span>
       </div>
+
+      <div class="card">
+        <div class="card-title" style="margin-bottom:8px;">📌 ${today} のタイムライン</div>
     `;
+
+    if (todaySlots.length === 0) {
+      html += `<p class="text-muted" style="font-size:13px;text-align:center;padding:20px;">この日のタイムラインは未設定です。<br>「タイムライン作成」タブで付箋を配置してください。</p>`;
+    } else {
+      html += '<div id="reportSlots">';
+      todaySlots.forEach(slot => {
+        const s = stickyMap[slot.sticky_id];
+        if (!s) return;
+        const draft = draftMap[slot.id] || {};
+        const sh = String(Math.floor(slot.start_minutes / 60)).padStart(2, '0');
+        const sm = String(slot.start_minutes % 60).padStart(2, '0');
+        const endMin = slot.start_minutes + slot.duration_minutes;
+        const eh = String(Math.floor(endMin / 60)).padStart(2, '0');
+        const em = String(endMin % 60).padStart(2, '0');
+        const action = draft.action || 'done';
+        html += `<div class="report-slot" data-slot-id="${slot.id}" data-sticky-id="${s.id}" data-est="${s.estimated_minutes}" style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--gray-50);">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+              <div style="font-weight:700;font-size:14px;">${s.title}</div>
+              <div style="font-size:11px;color:var(--gray-500);margin-top:2px;">${sh}:${sm} - ${eh}:${em} ・ 想定 ${s.estimated_minutes}分</div>
+            </div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;">
+              <label class="report-action ${action === 'done' ? 'active' : ''}" style="cursor:pointer;padding:4px 10px;border-radius:14px;font-size:11px;background:${action === 'done' ? '#10b981' : 'var(--gray-200)'};color:${action === 'done' ? 'white' : 'var(--gray-700)'};">
+                <input type="radio" name="act_${slot.id}" value="done" ${action === 'done' ? 'checked' : ''} style="display:none;" onchange="App.handleReportActionChange('${slot.id}','done')">✅ 完了
+              </label>
+              <label class="report-action" style="cursor:pointer;padding:4px 10px;border-radius:14px;font-size:11px;background:${action === 'continue' ? '#3b82f6' : 'var(--gray-200)'};color:${action === 'continue' ? 'white' : 'var(--gray-700)'};">
+                <input type="radio" name="act_${slot.id}" value="continue" ${action === 'continue' ? 'checked' : ''} style="display:none;" onchange="App.handleReportActionChange('${slot.id}','continue')">🔄 継続
+              </label>
+              <label class="report-action" style="cursor:pointer;padding:4px 10px;border-radius:14px;font-size:11px;background:${action === 'skip' ? '#f59e0b' : 'var(--gray-200)'};color:${action === 'skip' ? 'white' : 'var(--gray-700)'};">
+                <input type="radio" name="act_${slot.id}" value="skip" ${action === 'skip' ? 'checked' : ''} style="display:none;" onchange="App.handleReportActionChange('${slot.id}','skip')">⏸ 見送り
+              </label>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;margin-top:10px;">
+            <label style="font-size:11px;color:var(--gray-600);">実績(分)</label>
+            <input type="number" class="form-input report-actual" min="0" placeholder="${s.estimated_minutes}" value="${draft.actual_minutes || ''}" style="max-width:120px;padding:6px 8px;font-size:12px;">
+          </div>
+          <textarea class="form-textarea report-comment" rows="2" placeholder="この付箋に対するコメント（任意）" style="margin-top:8px;font-size:12px;">${draft.comment || ''}</textarea>
+        </div>`;
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+
+    // 明日のスケジュール
+    html += `<div class="card">
+      <div class="card-title" style="margin-bottom:8px;">🌅 ${tomorrow} の予定（送信に同梱）</div>`;
+    if (tomorrowSlots.length === 0) {
+      html += `<p class="text-muted" style="font-size:12px;text-align:center;padding:12px;">明日のタイムラインは未設定です。「タイムライン作成」タブで配置できます（送信時に空のままでも問題ありません）。</p>`;
+    } else {
+      html += '<div>';
+      tomorrowSlots.forEach(slot => {
+        const s = stickyMap[slot.sticky_id];
+        if (!s) return;
+        const sh = String(Math.floor(slot.start_minutes / 60)).padStart(2, '0');
+        const sm = String(slot.start_minutes % 60).padStart(2, '0');
+        html += `<div style="padding:6px 10px;background:var(--gray-50);border-radius:6px;margin-bottom:4px;font-size:12px;display:flex;justify-content:space-between;">
+          <span>${sh}:${sm} - <strong>${s.title}</strong></span>
+          <span class="text-muted">${slot.duration_minutes}分</span>
+        </div>`;
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+
+    // 所感
+    html += `<div class="card">
+      <div class="card-title" style="margin-bottom:8px;">💬 今日の所感</div>
+      <textarea id="reportComment" class="form-textarea" rows="2" placeholder="気づき・課題・明日に向けて等">${existingDraft?.comment || ''}</textarea>
+    </div>`;
+
+    // 送信ボタン
+    html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+      <button class="btn btn-secondary" onclick="App.saveReportDraft()">💾 下書き保存</button>
+      <button class="btn btn-success" onclick="App.submitDailyReport()" ${todaySlots.length === 0 ? 'disabled' : ''}>📤 確定して送信</button>
+    </div>`;
+
+    pane.innerHTML = html;
+
+    document.getElementById('reportDate').addEventListener('change', (e) => {
+      this.state.reportDate = e.target.value;
+      this.renderDailyReportTab();
+    });
+  },
+
+  setReportDate(daysFromToday) {
+    const t = new Date();
+    t.setDate(t.getDate() + daysFromToday);
+    this.state.reportDate = t.toISOString().slice(0, 10);
+    this.renderDailyReportTab();
+  },
+
+  handleReportActionChange(slotId, action) {
+    // UI のラベル背景色を更新
+    const slot = document.querySelector(`.report-slot[data-slot-id="${slotId}"]`);
+    if (!slot) return;
+    slot.querySelectorAll('.report-action').forEach(lbl => {
+      const radio = lbl.querySelector('input');
+      const isActive = radio.value === action;
+      const bg = isActive ?
+        (action === 'done' ? '#10b981' : action === 'continue' ? '#3b82f6' : '#f59e0b')
+        : 'var(--gray-200)';
+      const color = isActive ? 'white' : 'var(--gray-700)';
+      lbl.style.background = bg;
+      lbl.style.color = color;
+    });
+  },
+
+  collectReportData() {
+    const slots = [];
+    document.querySelectorAll('.report-slot').forEach(slotEl => {
+      const slotId = slotEl.dataset.slotId;
+      const stickyId = slotEl.dataset.stickyId;
+      const est = parseInt(slotEl.dataset.est);
+      const action = slotEl.querySelector('input[type="radio"]:checked')?.value || 'done';
+      const actual = parseInt(slotEl.querySelector('.report-actual').value);
+      const comment = slotEl.querySelector('.report-comment').value.trim();
+      slots.push({
+        slot_id: slotId,
+        sticky_id: stickyId,
+        action,
+        actual_minutes: isNaN(actual) ? est : actual,
+        comment
+      });
+    });
+    return slots;
+  },
+
+  async saveReportDraft() {
+    try {
+      const summary = this.collectReportData();
+      const comment = document.getElementById('reportComment')?.value.trim() || '';
+      const staffId = auth.currentUser.id;
+      const today = this.state.reportDate;
+      const existing = (await db.getDailyReports({ staff_id: staffId, report_date: today }))
+        .find(r => (r.status || 'submitted') !== 'submitted');
+      const payload = {
+        staff_id: staffId,
+        report_date: today,
+        timeline_summary: summary,
+        comment,
+        status: 'draft'
+      };
+      if (existing) {
+        await db.updateDailyReport(existing.id, payload);
+      } else {
+        await db.createDailyReport(payload);
+      }
+      this.toast('下書きを保存しました');
+    } catch (e) {
+      this.toast('保存エラー: ' + e.message, 'error');
+    }
+  },
+
+  async submitDailyReport() {
+    try {
+      const summary = this.collectReportData();
+      if (summary.length === 0) {
+        this.toast('送信する付箋がありません', 'error');
+        return;
+      }
+      const ok = await this.confirmSubmit(
+        '日報を送信しますか？',
+        `✅完了: ${summary.filter(s => s.action === 'done').length}件 / 🔄継続: ${summary.filter(s => s.action === 'continue').length}件 / ⏸見送り: ${summary.filter(s => s.action === 'skip').length}件 を送信します。`
+      );
+      if (!ok) return;
+
+      const staffId = auth.currentUser.id;
+      const today = this.state.reportDate;
+      const t = new Date(today);
+      t.setDate(t.getDate() + 1);
+      const tomorrow = t.toISOString().slice(0, 10);
+      const comment = document.getElementById('reportComment')?.value.trim() || '';
+
+      // 翌日のタイムライン取得
+      const tomorrowSlots = await db.getTimelineSlots(staffId, tomorrow).catch(() => []);
+
+      // 各付箋の状態を更新
+      const now = new Date().toISOString();
+      for (const s of summary) {
+        if (s.action === 'done') {
+          await db.updateSticky(s.sticky_id, {
+            status: 'archived',
+            actual_minutes: s.actual_minutes,
+            completion_note: s.comment || '完了',
+            archived_at: now
+          }).catch(() => {});
+        } else if (s.action === 'continue') {
+          // 翌日に再配置（重複しない場合のみ）
+          const exists = tomorrowSlots.some(ts => ts.sticky_id === s.sticky_id);
+          if (!exists) {
+            await db.createTimelineSlot({
+              sticky_id: s.sticky_id,
+              staff_id: staffId,
+              schedule_date: tomorrow,
+              start_minutes: 9 * 60,
+              duration_minutes: parseInt(document.querySelector(`.report-slot[data-sticky-id="${s.sticky_id}"]`)?.dataset.est) || 30,
+              status: 'planned'
+            }).catch(() => {});
+          }
+        } else if (s.action === 'skip') {
+          await db.updateSticky(s.sticky_id, { priority: 'low' }).catch(() => {});
+        }
+      }
+
+      // 翌日スケジュールを再取得（継続を含めた状態）
+      const finalTomorrow = await db.getTimelineSlots(staffId, tomorrow).catch(() => []);
+
+      // 日報を提出
+      const existing = (await db.getDailyReports({ staff_id: staffId, report_date: today }))
+        .find(r => (r.status || 'submitted') !== 'submitted');
+      const payload = {
+        staff_id: staffId,
+        report_date: today,
+        timeline_summary: summary,
+        tomorrow_schedule: finalTomorrow.map(ts => ({
+          slot_id: ts.id,
+          sticky_id: ts.sticky_id,
+          start_minutes: ts.start_minutes,
+          duration_minutes: ts.duration_minutes
+        })),
+        comment,
+        status: 'submitted',
+        submitted_at: now
+      };
+      if (existing) {
+        await db.updateDailyReport(existing.id, payload);
+      } else {
+        await db.createDailyReport(payload);
+      }
+
+      // CEO に通知
+      const ceos = this.state.staff.filter(s => s.role === 'ceo');
+      for (const ceo of ceos) {
+        await db.createNotification({
+          recipient_id: ceo.id,
+          type: 'daily_log_added',
+          title: `📝 ${auth.currentUser.name} の日報`,
+          message: `${today} の日報が提出されました`
+        }).catch(() => {});
+      }
+
+      this.toast('日報を送信しました');
+      // タイムラインタブに移動
+      const tlTab = document.querySelector('.logs-tab[data-tab="timeline"]');
+      if (tlTab) tlTab.click();
+    } catch (e) {
+      this.toast('送信エラー: ' + e.message, 'error');
+    }
   },
 
   // ===== CEO 履歴タブ（プレースホルダー） =====
