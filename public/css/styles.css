@@ -1210,6 +1210,81 @@ body {
   }
 }
 
+/* ===== Sticky Board Tabs ===== */
+.sticky-board-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--gray-100);
+}
+.sticky-board-tab {
+  padding: 6px 10px;
+  background: var(--gray-100);
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--gray-700);
+  font-family: inherit;
+  flex: 1;
+  transition: all 0.15s;
+}
+.sticky-board-tab:hover {
+  background: var(--gray-200);
+}
+.sticky-board-tab.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* Sticky type tabs (in modal) */
+.sticky-type-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.sticky-type-tab {
+  flex: 1;
+  padding: 10px 12px;
+  background: var(--gray-100);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-700);
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.sticky-type-tab:hover {
+  background: var(--gray-200);
+}
+.sticky-type-tab.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary-dark);
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+}
+
+/* Recurring sticky visual hint */
+.sticky-card.recurring {
+  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+  border-color: #10b981;
+}
+.sticky-card.recurring.priority-high { background: linear-gradient(135deg, #fecaca, #fca5a5); }
+.sticky-card.recurring.priority-low { background: linear-gradient(135deg, #bfdbfe, #93c5fd); }
+.sticky-card.recurring::before {
+  content: '🔁';
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
 /* ===== Logs Tabs ===== */
 .logs-tab {
   padding: 10px 16px;

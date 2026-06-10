@@ -2758,6 +2758,16 @@ const App = {
       </div>`;
     }
 
+    // 付箋を「単発」「ルーティン」で分類
+    const onceStickies = stickies.filter(s => !s.recurrence_type || s.recurrence_type === 'once');
+    const recurStickies = stickies.filter(s => s.recurrence_type && s.recurrence_type !== 'once');
+
+    // 現在の付箋ボードタブ
+    if (!this.state.stickyTab) this.state.stickyTab = 'once';
+    const activeBoard = this.state.stickyTab;
+    const showStickies = activeBoard === 'once' ? onceStickies : recurStickies;
+    const showManyClass = showStickies.length > 12 ? 'many' : '';
+
     pane.innerHTML = `
       <div class="tl-toolbar">
         <label>📅 対象日:</label>
@@ -2773,11 +2783,17 @@ const App = {
         <div class="tl-timeline" id="tlTimeline">${rowsHtml}</div>
         <div class="tl-board">
           <div class="tl-board-header">
-            <div class="tl-board-title">📌 付箋（${stickies.length}件）</div>
+            <div class="tl-board-title">📌 付箋</div>
             <button class="btn btn-sm btn-primary" onclick="App.openStickyModal()">+ 付箋作成</button>
           </div>
-          <div class="tl-board-stickies ${manyClass} ${stickies.length === 0 ? 'empty' : ''}" id="tlBoard">
-            ${stickies.length === 0 ? 'まず付箋を作成してください' : stickies.map(s => this.stickyCardHtml(s, placedIds.has(s.id))).join('')}
+          <div class="sticky-board-tabs">
+            <button class="sticky-board-tab ${activeBoard === 'once' ? 'active' : ''}" onclick="App.setStickyBoardTab('once')">📝 単発（${onceStickies.length}）</button>
+            <button class="sticky-board-tab ${activeBoard === 'recurring' ? 'active' : ''}" onclick="App.setStickyBoardTab('recurring')">🔁 ルーティン（${recurStickies.length}）</button>
+          </div>
+          <div class="tl-board-stickies ${showManyClass} ${showStickies.length === 0 ? 'empty' : ''}" id="tlBoard">
+            ${showStickies.length === 0 ?
+              (activeBoard === 'once' ? '単発付箋がありません。「+ 付箋作成」で追加' : 'ルーティン付箋がありません。「+ 付箋作成」→「🔁 ルーティン」で追加')
+              : showStickies.map(s => this.stickyCardHtml(s, placedIds.has(s.id))).join('')}
           </div>
         </div>
       </div>
@@ -2806,14 +2822,23 @@ const App = {
 
   stickyCardHtml(s, isPlaced) {
     const prio = s.priority || 'medium';
-    return `<div class="sticky-card priority-${prio} ${isPlaced ? 'placed' : ''}" draggable="${!isPlaced}" data-sticky-id="${s.id}" data-min="${s.estimated_minutes}" onclick="App.openStickyModal('${s.id}')" title="クリックで編集">
+    const recur = s.recurrence_type && s.recurrence_type !== 'once' ? s.recurrence_type : null;
+    const recurIcon = { daily: '📅 毎日', weekly: '📆 毎週', monthly: '🗓 毎月' }[recur] || '';
+    const isRecur = !!recur;
+    return `<div class="sticky-card priority-${prio} ${isPlaced ? 'placed' : ''} ${isRecur ? 'recurring' : ''}" draggable="${!isPlaced}" data-sticky-id="${s.id}" data-min="${s.estimated_minutes}" onclick="App.openStickyModal('${s.id}')" title="クリックで編集">
       <button class="sticky-card-remove" onclick="event.stopPropagation();App.deleteSticky('${s.id}')" title="削除">×</button>
       <div class="sticky-card-title">${s.title}</div>
       <div class="sticky-card-meta">
         <span>⏱ ${s.estimated_minutes}分</span>
         <span>${prio === 'high' ? '🔴' : prio === 'low' ? '🔵' : '🟡'}</span>
+        ${recurIcon ? `<span style="font-size:9px;">${recurIcon}</span>` : ''}
       </div>
     </div>`;
+  },
+
+  setStickyBoardTab(tab) {
+    this.state.stickyTab = tab;
+    this.renderTimelineTab();
   },
 
   placeStickyOnTimeline(sticky, slot) {
@@ -2921,8 +2946,26 @@ const App = {
     const minutesOptions = [15, 30, 45, 60, 90, 120, 180, 240];
     const selectedMin = existing?.estimated_minutes ?? 30;
     const selectedPrio = existing?.priority ?? 'medium';
+    const initialType = existing?.recurrence_type && existing.recurrence_type !== 'once' ? 'recurring' : 'once';
+    const recurType = existing?.recurrence_type && existing.recurrence_type !== 'once' ? existing.recurrence_type : 'daily';
+    const recurDays = Array.isArray(existing?.recurrence_days) ? existing.recurrence_days : [];
+
+    // 曜日チェックボックス（週次用）
+    const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+    const weekdayHtml = weekdays.map((w, i) =>
+      `<label style="display:flex;align-items:center;gap:4px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px;">
+        <input type="checkbox" class="rec_wday" value="${i}" ${recurDays.includes(i) ? 'checked' : ''}>${w}
+      </label>`
+    ).join('');
 
     this.showModal(id ? '✏️ 付箋を編集' : '+ 新規付箋', `
+      <div class="sticky-type-tabs">
+        <button type="button" class="sticky-type-tab ${initialType === 'once' ? 'active' : ''}" data-type="once" onclick="App.switchStickyType('once')">📝 単発タスク</button>
+        <button type="button" class="sticky-type-tab ${initialType === 'recurring' ? 'active' : ''}" data-type="recurring" onclick="App.switchStickyType('recurring')">🔁 ルーティン・繰り返し</button>
+      </div>
+
+      <input type="hidden" id="st_type" value="${initialType}">
+
       <div class="form-group">
         <label class="form-label">タイトル *</label>
         <input type="text" id="st_title" class="form-input" placeholder="例: 山野さんに連絡" value="${(existing?.title || '').replace(/"/g, '&quot;')}">
@@ -2933,7 +2976,7 @@ const App = {
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">想定時間 *（分）</label>
+          <label class="form-label">想定時間 *</label>
           <select id="st_minutes" class="form-select">
             ${minutesOptions.map(m => `<option value="${m}" ${m === selectedMin ? 'selected' : ''}>${m >= 60 ? (m / 60 % 1 === 0 ? `${m/60}時間` : `${Math.floor(m/60)}時間${m%60}分`) : `${m}分`}</option>`).join('')}
           </select>
@@ -2947,16 +2990,66 @@ const App = {
           </select>
         </div>
       </div>
+
+      <div id="st_recurringSection" style="display:${initialType === 'recurring' ? 'block' : 'none'};margin-top:8px;padding:12px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-radius:8px;border:1px solid #93c5fd;">
+        <label class="form-label" style="color:var(--primary-dark);">🔁 繰り返しパターン *</label>
+        <select id="st_recurType" class="form-select" onchange="App.toggleRecurOptions()">
+          <option value="daily" ${recurType === 'daily' ? 'selected' : ''}>📅 毎日</option>
+          <option value="weekly" ${recurType === 'weekly' ? 'selected' : ''}>📆 毎週（曜日指定）</option>
+          <option value="monthly" ${recurType === 'monthly' ? 'selected' : ''}>🗓 毎月（日付指定）</option>
+        </select>
+
+        <div id="st_weeklyDays" style="margin-top:10px;display:${recurType === 'weekly' ? 'block' : 'none'};">
+          <div style="font-size:11px;color:var(--gray-700);margin-bottom:6px;">繰り返す曜日（複数選択可）</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;">${weekdayHtml}</div>
+        </div>
+
+        <div id="st_monthlyDay" style="margin-top:10px;display:${recurType === 'monthly' ? 'block' : 'none'};">
+          <div style="font-size:11px;color:var(--gray-700);margin-bottom:6px;">繰り返す日（1〜31）</div>
+          <input type="number" id="st_monthDay" class="form-input" min="1" max="31" value="${recurDays[0] || 1}" style="max-width:120px;">
+        </div>
+
+        <p style="font-size:11px;color:var(--gray-600);margin-top:10px;">💡 ルーティン付箋はタイムラインに繰り返し配置可能で、何度配置しても残り続けます。</p>
+      </div>
+
       ${id ? `<p class="text-muted" style="font-size:11px;margin-top:8px;">想定時間を変更すると、配置済みの付箋は自動で再配置されません。一度外して再配置してください。</p>` : ''}
     `, async () => {
       const title = document.getElementById('st_title').value.trim();
       if (!title) { this.toast('タイトル必須', 'error'); return false; }
+
+      const type = document.getElementById('st_type').value;
       const data = {
         title,
         description: document.getElementById('st_desc').value.trim(),
         estimated_minutes: parseInt(document.getElementById('st_minutes').value),
         priority: document.getElementById('st_priority').value
       };
+
+      if (type === 'recurring') {
+        const rt = document.getElementById('st_recurType').value;
+        data.recurrence_type = rt;
+        if (rt === 'weekly') {
+          const days = Array.from(document.querySelectorAll('.rec_wday:checked')).map(cb => parseInt(cb.value));
+          if (days.length === 0) {
+            this.toast('繰り返す曜日を1つ以上選択', 'error');
+            return false;
+          }
+          data.recurrence_days = days;
+        } else if (rt === 'monthly') {
+          const d = parseInt(document.getElementById('st_monthDay').value);
+          if (isNaN(d) || d < 1 || d > 31) {
+            this.toast('日付は1〜31で指定', 'error');
+            return false;
+          }
+          data.recurrence_days = [d];
+        } else {
+          data.recurrence_days = null;
+        }
+      } else {
+        data.recurrence_type = 'once';
+        data.recurrence_days = null;
+      }
+
       try {
         if (id) {
           await db.updateSticky(id, data);
@@ -2969,6 +3062,9 @@ const App = {
           });
           this.toast('付箋を作成しました');
         }
+        // ルーティン付箋の場合は対応するタブに切替
+        if (data.recurrence_type !== 'once') this.state.stickyTab = 'recurring';
+        else this.state.stickyTab = 'once';
         this.renderTimelineTab();
         return true;
       } catch (e) {
@@ -2977,8 +3073,23 @@ const App = {
       }
     }, false, {
       submitLabel: id ? '💾 更新' : '➕ 作成',
-      submitClass: id ? 'btn-primary' : 'btn-primary'
+      submitClass: 'btn-primary'
     });
+  },
+
+  switchStickyType(type) {
+    document.getElementById('st_type').value = type;
+    document.querySelectorAll('.sticky-type-tab').forEach(t => t.classList.toggle('active', t.dataset.type === type));
+    const section = document.getElementById('st_recurringSection');
+    if (section) section.style.display = type === 'recurring' ? 'block' : 'none';
+  },
+
+  toggleRecurOptions() {
+    const rt = document.getElementById('st_recurType').value;
+    const wkly = document.getElementById('st_weeklyDays');
+    const mnth = document.getElementById('st_monthlyDay');
+    if (wkly) wkly.style.display = rt === 'weekly' ? 'block' : 'none';
+    if (mnth) mnth.style.display = rt === 'monthly' ? 'block' : 'none';
   },
 
   async deleteSticky(id) {
