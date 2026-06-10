@@ -2806,7 +2806,7 @@ const App = {
 
   stickyCardHtml(s, isPlaced) {
     const prio = s.priority || 'medium';
-    return `<div class="sticky-card priority-${prio} ${isPlaced ? 'placed' : ''}" draggable="${!isPlaced}" data-sticky-id="${s.id}" data-min="${s.estimated_minutes}">
+    return `<div class="sticky-card priority-${prio} ${isPlaced ? 'placed' : ''}" draggable="${!isPlaced}" data-sticky-id="${s.id}" data-min="${s.estimated_minutes}" onclick="App.openStickyModal('${s.id}')" title="クリックで編集">
       <button class="sticky-card-remove" onclick="event.stopPropagation();App.deleteSticky('${s.id}')" title="削除">×</button>
       <div class="sticky-card-title">${s.title}</div>
       <div class="sticky-card-meta">
@@ -2905,60 +2905,79 @@ const App = {
     }
   },
 
-  // 付箋作成モーダル
-  openStickyModal(id = null) {
-    this.showModal(id ? '付箋を編集' : '+ 新規付箋', `
+  // 付箋作成/編集モーダル
+  async openStickyModal(id = null) {
+    let existing = null;
+    if (id) {
+      try {
+        const result = await db.request('GET', `/stickies?id=eq.${id}&limit=1`);
+        existing = Array.isArray(result) ? result[0] : result;
+      } catch (e) {
+        this.toast('付箋取得エラー: ' + e.message, 'error');
+        return;
+      }
+    }
+
+    const minutesOptions = [15, 30, 45, 60, 90, 120, 180, 240];
+    const selectedMin = existing?.estimated_minutes ?? 30;
+    const selectedPrio = existing?.priority ?? 'medium';
+
+    this.showModal(id ? '✏️ 付箋を編集' : '+ 新規付箋', `
       <div class="form-group">
         <label class="form-label">タイトル *</label>
-        <input type="text" id="st_title" class="form-input" placeholder="例: 山野さんに連絡">
+        <input type="text" id="st_title" class="form-input" placeholder="例: 山野さんに連絡" value="${(existing?.title || '').replace(/"/g, '&quot;')}">
       </div>
       <div class="form-group">
         <label class="form-label">概要・メモ</label>
-        <textarea id="st_desc" class="form-textarea" rows="2" placeholder="任意"></textarea>
+        <textarea id="st_desc" class="form-textarea" rows="2" placeholder="任意">${existing?.description || ''}</textarea>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">想定時間 *（分）</label>
           <select id="st_minutes" class="form-select">
-            <option value="15">15分</option>
-            <option value="30" selected>30分</option>
-            <option value="45">45分</option>
-            <option value="60">1時間</option>
-            <option value="90">1時間30分</option>
-            <option value="120">2時間</option>
-            <option value="180">3時間</option>
-            <option value="240">4時間</option>
+            ${minutesOptions.map(m => `<option value="${m}" ${m === selectedMin ? 'selected' : ''}>${m >= 60 ? (m / 60 % 1 === 0 ? `${m/60}時間` : `${Math.floor(m/60)}時間${m%60}分`) : `${m}分`}</option>`).join('')}
           </select>
         </div>
         <div class="form-group">
           <label class="form-label">優先度</label>
           <select id="st_priority" class="form-select">
-            <option value="high">🔴 高</option>
-            <option value="medium" selected>🟡 中</option>
-            <option value="low">🔵 低</option>
+            <option value="high" ${selectedPrio === 'high' ? 'selected' : ''}>🔴 高</option>
+            <option value="medium" ${selectedPrio === 'medium' ? 'selected' : ''}>🟡 中</option>
+            <option value="low" ${selectedPrio === 'low' ? 'selected' : ''}>🔵 低</option>
           </select>
         </div>
       </div>
+      ${id ? `<p class="text-muted" style="font-size:11px;margin-top:8px;">想定時間を変更すると、配置済みの付箋は自動で再配置されません。一度外して再配置してください。</p>` : ''}
     `, async () => {
       const title = document.getElementById('st_title').value.trim();
       if (!title) { this.toast('タイトル必須', 'error'); return false; }
       const data = {
-        staff_id: auth.currentUser.id,
         title,
         description: document.getElementById('st_desc').value.trim(),
         estimated_minutes: parseInt(document.getElementById('st_minutes').value),
-        priority: document.getElementById('st_priority').value,
-        status: 'active'
+        priority: document.getElementById('st_priority').value
       };
       try {
-        await db.createSticky(data);
-        this.toast('付箋を作成しました');
+        if (id) {
+          await db.updateSticky(id, data);
+          this.toast('付箋を更新しました');
+        } else {
+          await db.createSticky({
+            ...data,
+            staff_id: auth.currentUser.id,
+            status: 'active'
+          });
+          this.toast('付箋を作成しました');
+        }
         this.renderTimelineTab();
         return true;
       } catch (e) {
         this.toast('エラー: ' + e.message, 'error');
         return false;
       }
+    }, false, {
+      submitLabel: id ? '💾 更新' : '➕ 作成',
+      submitClass: id ? 'btn-primary' : 'btn-primary'
     });
   },
 
