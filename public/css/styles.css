@@ -1210,6 +1210,69 @@ body {
   }
 }
 
+/* ===== Calendar Grid ===== */
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+}
+.cal-weekday {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 0;
+  color: var(--gray-600);
+  background: var(--gray-50);
+  border-radius: 4px;
+}
+.cal-weekday.sun { color: #ef4444; }
+.cal-weekday.sat { color: #3b82f6; }
+
+.cal-cell {
+  min-height: 70px;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: white;
+  display: flex;
+  flex-direction: column;
+}
+.cal-cell:hover { background: var(--gray-50); border-color: var(--primary); }
+.cal-cell.empty { background: transparent; border: none; cursor: default; }
+.cal-cell.empty:hover { background: transparent; border: none; }
+.cal-cell.today { border-color: var(--primary); background: var(--primary-light); }
+.cal-cell.selected { border: 2px solid var(--primary); background: #dbeafe; }
+.cal-cell.has-slots { background: #ecfdf5; border-color: #10b981; }
+.cal-cell.has-slots.today { background: linear-gradient(135deg, #dbeafe, #d1fae5); }
+.cal-cell.has-slots.selected { background: #dbeafe; border: 2px solid var(--primary); }
+
+.cal-day-num { font-size: 13px; font-weight: 700; color: var(--gray-800); }
+.cal-day-count {
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 4px;
+  padding: 2px 6px;
+  background: var(--primary);
+  color: white;
+  border-radius: 10px;
+  display: inline-block;
+  width: fit-content;
+}
+.cal-day-min { font-size: 9px; color: var(--gray-600); margin-top: 2px; }
+
+@media (max-width: 640px) {
+  .cal-cell { min-height: 56px; padding: 3px 4px; }
+  .cal-day-num { font-size: 12px; }
+  .cal-day-count { font-size: 9px; padding: 1px 4px; }
+  .cal-day-min { display: none; }
+}
+
 /* ===== Sticky Board Tabs ===== */
 .sticky-board-tabs {
   display: flex;

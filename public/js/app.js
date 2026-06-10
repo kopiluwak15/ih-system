@@ -2695,8 +2695,152 @@ const App = {
       }
     }
     const active = document.querySelector('.logs-tab.active');
-    const tabName = active?.dataset.tab || (auth.isCEO() ? 'history' : 'timeline');
+    const tabName = active?.dataset.tab || (auth.isCEO() ? 'history' : 'report');
     await this.dispatchLogsTab(tabName);
+  },
+
+  // ===== カレンダータブ =====
+  async renderCalendarTab() {
+    const pane = document.getElementById('logsTabCalendar');
+    if (!this.state.calDate) {
+      const t = new Date();
+      this.state.calDate = { year: t.getFullYear(), month: t.getMonth() };
+    }
+    const { year, month } = this.state.calDate;
+    const staffId = auth.currentUser.id;
+
+    // 月初〜月末
+    const monthStart = new Date(year, month, 1);
+    const monthEnd = new Date(year, month + 1, 0);
+    const dateFrom = monthStart.toISOString().slice(0, 10);
+    const dateTo = monthEnd.toISOString().slice(0, 10);
+
+    let slots = [], stickies = [];
+    try {
+      slots = await db.request('GET', `/timeline_slots?staff_id=eq.${staffId}&schedule_date=gte.${dateFrom}&schedule_date=lte.${dateTo}&order=schedule_date.asc,start_minutes.asc`);
+      stickies = await db.getStickies(staffId);
+    } catch (e) {
+      pane.innerHTML = `<div style="color:var(--danger);padding:20px;">読み込みエラー: ${e.message}</div>`;
+      return;
+    }
+    const stickyMap = {};
+    stickies.forEach(s => stickyMap[s.id] = s);
+
+    // 日付ごとに集計
+    const slotsByDate = {};
+    slots.forEach(s => {
+      if (!slotsByDate[s.schedule_date]) slotsByDate[s.schedule_date] = [];
+      slotsByDate[s.schedule_date].push(s);
+    });
+
+    const monthName = `${year}年${month + 1}月`;
+    const firstDayOfWeek = monthStart.getDay();
+    const daysInMonth = monthEnd.getDate();
+    const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
+    const today = new Date().toISOString().slice(0, 10);
+
+    let cellsHtml = '';
+    // 前月の空白
+    for (let i = 0; i < firstDayOfWeek; i++) {
+      cellsHtml += '<div class="cal-cell cal-empty"></div>';
+    }
+    // 月日
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const daySlots = slotsByDate[dateStr] || [];
+      const isToday = dateStr === today;
+      const totalMin = daySlots.reduce((sum, s) => sum + (s.duration_minutes || 0), 0);
+      const isSelected = this.state.calSelectedDate === dateStr;
+
+      cellsHtml += `<div class="cal-cell ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''} ${daySlots.length > 0 ? 'has-slots' : ''}" onclick="App.selectCalDate('${dateStr}')">
+        <div class="cal-day-num">${d}</div>
+        ${daySlots.length > 0 ? `
+          <div class="cal-day-count">${daySlots.length}件</div>
+          <div class="cal-day-min">${Math.floor(totalMin / 60)}h${totalMin % 60}m</div>
+        ` : ''}
+      </div>`;
+    }
+
+    let detailHtml = '';
+    if (this.state.calSelectedDate) {
+      const daySlots = slotsByDate[this.state.calSelectedDate] || [];
+      detailHtml = `<div class="card" style="margin-top:14px;">
+        <div class="card-header">
+          <div class="card-title">📅 ${this.state.calSelectedDate} の予定（${daySlots.length}件）</div>
+          <button class="btn btn-sm btn-primary" onclick="App.gotoTimelineForDate('${this.state.calSelectedDate}')">📌 タイムラインを編集</button>
+        </div>
+        ${daySlots.length === 0 ? '<p class="text-muted" style="font-size:12px;text-align:center;padding:14px;">この日のタイムラインは未設定です</p>' :
+          daySlots.map(s => {
+            const sticky = stickyMap[s.sticky_id];
+            const sh = String(Math.floor(s.start_minutes / 60)).padStart(2, '0');
+            const sm = String(s.start_minutes % 60).padStart(2, '0');
+            const endMin = s.start_minutes + s.duration_minutes;
+            const eh = String(Math.floor(endMin / 60)).padStart(2, '0');
+            const em = String(endMin % 60).padStart(2, '0');
+            const prio = sticky?.priority || 'medium';
+            return `<div style="padding:8px 12px;background:var(--gray-50);border-left:4px solid ${prio === 'high' ? '#ef4444' : prio === 'low' ? '#3b82f6' : '#f59e0b'};border-radius:6px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="font-weight:600;font-size:13px;">${sticky?.title || '(削除済み付箋)'}</div>
+                <div style="font-size:11px;color:var(--gray-500);">${sh}:${sm} - ${eh}:${em} （${s.duration_minutes}分）</div>
+              </div>
+            </div>`;
+          }).join('')
+        }
+      </div>`;
+    }
+
+    pane.innerHTML = `
+      <div class="tl-toolbar">
+        <button class="btn btn-sm btn-secondary" onclick="App.shiftCalMonth(-1)">← 前月</button>
+        <strong style="font-size:14px;min-width:120px;text-align:center;">${monthName}</strong>
+        <button class="btn btn-sm btn-secondary" onclick="App.shiftCalMonth(1)">次月 →</button>
+        <button class="btn btn-sm btn-secondary" onclick="App.gotoCalToday()">今日</button>
+        <span style="flex:1;"></span>
+        <span class="text-muted" style="font-size:11px;">合計: ${slots.length}件 / ${Math.floor(slots.reduce((s, x) => s + (x.duration_minutes || 0), 0) / 60)}時間</span>
+      </div>
+      <div class="cal-grid">
+        <div class="cal-weekday sun">日</div>
+        <div class="cal-weekday">月</div>
+        <div class="cal-weekday">火</div>
+        <div class="cal-weekday">水</div>
+        <div class="cal-weekday">木</div>
+        <div class="cal-weekday">金</div>
+        <div class="cal-weekday sat">土</div>
+        ${cellsHtml}
+      </div>
+      ${detailHtml}
+    `;
+  },
+
+  selectCalDate(dateStr) {
+    this.state.calSelectedDate = dateStr;
+    this.renderCalendarTab();
+  },
+
+  shiftCalMonth(delta) {
+    const c = this.state.calDate;
+    let y = c.year, m = c.month + delta;
+    if (m < 0) { y--; m = 11; }
+    else if (m > 11) { y++; m = 0; }
+    this.state.calDate = { year: y, month: m };
+    this.renderCalendarTab();
+  },
+
+  gotoCalToday() {
+    const t = new Date();
+    this.state.calDate = { year: t.getFullYear(), month: t.getMonth() };
+    this.state.calSelectedDate = t.toISOString().slice(0, 10);
+    this.renderCalendarTab();
+  },
+
+  gotoTimelineForDate(dateStr) {
+    this.state.tlDate = dateStr;
+    // タイムラインタブに切替
+    document.querySelectorAll('.logs-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.logs-tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelector('.logs-tab[data-tab="timeline"]')?.classList.add('active');
+    document.getElementById('logsTabTimeline')?.classList.add('active');
+    this.renderTimelineTab();
   },
 
   setupLogsTabs() {
@@ -2717,6 +2861,7 @@ const App = {
   async dispatchLogsTab(tabName) {
     if (tabName === 'timeline') await this.renderTimelineTab();
     else if (tabName === 'report') await this.renderDailyReportTab();
+    else if (tabName === 'calendar') await this.renderCalendarTab();
     else if (tabName === 'archive') await this.renderStickyArchiveTab();
     else if (tabName === 'history' && auth.isCEO()) await this.renderCEOLogsHistory();
   },
@@ -2776,6 +2921,7 @@ const App = {
         <button class="btn btn-sm btn-secondary" onclick="App.setTlDate(2)">明後日</button>
         <span style="flex:1;"></span>
         <span class="text-muted" style="font-size:11px;">配置: ${slots.length}件 / 未配置: ${unplaced.length}件</span>
+        <button class="btn btn-sm btn-success" onclick="App.saveTimelineToCal()">💾 保存（カレンダー反映）</button>
         <button class="btn btn-sm btn-danger" onclick="App.clearTimeline()">🗑 配置クリア</button>
       </div>
 
@@ -2928,6 +3074,17 @@ const App = {
     } catch (e) {
       this.toast('エラー: ' + e.message, 'error');
     }
+  },
+
+  async saveTimelineToCal() {
+    // すでにドラッグ時に DB 保存済み。確認 + カレンダーへの誘導用
+    const date = this.state.tlDate;
+    let count = 0;
+    try {
+      const slots = await db.getTimelineSlots(auth.currentUser.id, date);
+      count = slots.length;
+    } catch {}
+    this.toast(`✅ ${date} のタイムライン（${count}件）をカレンダーに保存しました`);
   },
 
   // 付箋作成/編集モーダル
@@ -3103,36 +3260,108 @@ const App = {
     }
   },
 
-  // ===== Sticky Archive タブ =====
+  // ===== Sticky Archive タブ（月別表示） =====
   async renderStickyArchiveTab() {
     const pane = document.getElementById('logsTabArchive');
     pane.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div>';
+
+    if (!this.state.archiveYM) {
+      const t = new Date();
+      this.state.archiveYM = { year: t.getFullYear(), month: t.getMonth() };
+    }
+    const { year, month } = this.state.archiveYM;
+    const monthName = `${year}年${month + 1}月`;
+
+    let archived = [];
     try {
-      const archived = await db.getStickies(auth.currentUser.id, 'archived');
-      if (archived.length === 0) {
-        pane.innerHTML = this.emptyState('📦', 'アーカイブなし', '日報送信で完了した付箋がここに残ります');
-        return;
+      // CEO の場合は全員、それ以外は自分のみ
+      if (auth.isCEO()) {
+        archived = await db.request('GET', `/stickies?status=eq.archived&order=archived_at.desc&limit=500`);
+      } else {
+        archived = await db.getStickies(auth.currentUser.id, 'archived');
       }
-      let html = '<p class="text-muted mb-2" style="font-size:12px;">完了済みの付箋。AI が想定時間の参考データに使います。</p>';
-      archived.forEach(s => {
-        html += `<div class="card" style="padding:10px 14px;margin-bottom:8px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-            <div style="flex:1;min-width:0;">
-              <div style="font-weight:600;font-size:13px;">${s.title}</div>
-              <div style="font-size:11px;color:var(--gray-500);margin-top:2px;">
-                想定 ${s.estimated_minutes}分 ${s.actual_minutes ? `→ 実績 ${s.actual_minutes}分` : ''}
-                ${s.archived_at ? ` ・ ${this.formatDate(s.archived_at)}` : ''}
-              </div>
-              ${s.completion_note ? `<div style="font-size:11px;color:var(--gray-700);margin-top:4px;">${s.completion_note}</div>` : ''}
-            </div>
-            <button class="btn btn-sm" style="background:none;border:none;color:var(--gray-400);" onclick="App.deleteSticky('${s.id}')">🗑</button>
-          </div>
-        </div>`;
-      });
-      pane.innerHTML = html;
     } catch (e) {
       pane.innerHTML = '<p style="color:var(--danger);">読み込みエラー: ' + e.message + '</p>';
+      return;
     }
+
+    // 月でフィルタ
+    const monthStart = new Date(year, month, 1).toISOString().slice(0, 10);
+    const monthEnd = new Date(year, month + 1, 0).toISOString().slice(0, 10);
+    const inMonth = archived.filter(s => {
+      if (!s.archived_at) return false;
+      const d = s.archived_at.slice(0, 10);
+      return d >= monthStart && d <= monthEnd;
+    });
+
+    // 月毎の集計（全期間）
+    const monthCounts = {};
+    archived.forEach(s => {
+      if (!s.archived_at) return;
+      const ym = s.archived_at.slice(0, 7); // YYYY-MM
+      monthCounts[ym] = (monthCounts[ym] || 0) + 1;
+    });
+
+    const totalMin = inMonth.reduce((s, x) => s + (x.actual_minutes || x.estimated_minutes || 0), 0);
+
+    let listHtml = '';
+    if (inMonth.length === 0) {
+      listHtml = this.emptyState('📦', `${monthName}のアーカイブなし`, '日報送信で完了した付箋がここに残ります');
+    } else {
+      // 日付ごとにグループ化
+      const byDate = {};
+      inMonth.forEach(s => {
+        const d = s.archived_at.slice(0, 10);
+        if (!byDate[d]) byDate[d] = [];
+        byDate[d].push(s);
+      });
+      const sortedDates = Object.keys(byDate).sort().reverse();
+      sortedDates.forEach(d => {
+        const items = byDate[d];
+        listHtml += `<div style="margin-bottom:14px;">
+          <div style="font-size:12px;font-weight:700;color:var(--gray-700);margin-bottom:6px;border-bottom:2px solid var(--primary);padding-bottom:4px;display:flex;justify-content:space-between;">
+            <span>📅 ${d}</span>
+            <span class="text-muted" style="font-weight:500;font-size:11px;">${items.length}件 / ${items.reduce((sum, x) => sum + (x.actual_minutes || x.estimated_minutes || 0), 0)}分</span>
+          </div>`;
+        items.forEach(s => {
+          const staff = this.state.staff.find(x => x.id === s.staff_id);
+          listHtml += `<div class="card" style="padding:10px 14px;margin-bottom:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:13px;">${s.title}</div>
+                <div style="font-size:11px;color:var(--gray-500);margin-top:2px;">
+                  想定 ${s.estimated_minutes}分 ${s.actual_minutes ? `→ 実績 ${s.actual_minutes}分` : ''}
+                  ${auth.isCEO() && staff ? ` ・ ${staff.name}` : ''}
+                </div>
+                ${s.completion_note ? `<div style="font-size:11px;color:var(--gray-700);margin-top:4px;padding:6px 8px;background:var(--gray-50);border-radius:4px;">${s.completion_note}</div>` : ''}
+              </div>
+              <button class="btn btn-sm" style="background:none;border:none;color:var(--gray-400);" onclick="App.deleteSticky('${s.id}')">🗑</button>
+            </div>
+          </div>`;
+        });
+        listHtml += '</div>';
+      });
+    }
+
+    pane.innerHTML = `
+      <div class="tl-toolbar">
+        <button class="btn btn-sm btn-secondary" onclick="App.shiftArchiveMonth(-1)">← 前月</button>
+        <strong style="font-size:14px;min-width:120px;text-align:center;">${monthName}</strong>
+        <button class="btn btn-sm btn-secondary" onclick="App.shiftArchiveMonth(1)">次月 →</button>
+        <span style="flex:1;"></span>
+        <span class="text-muted" style="font-size:11px;">${inMonth.length}件 / ${Math.floor(totalMin / 60)}時間${totalMin % 60}分</span>
+      </div>
+      ${listHtml}
+    `;
+  },
+
+  shiftArchiveMonth(delta) {
+    const c = this.state.archiveYM;
+    let y = c.year, m = c.month + delta;
+    if (m < 0) { y--; m = 11; }
+    else if (m > 11) { y++; m = 0; }
+    this.state.archiveYM = { year: y, month: m };
+    this.renderStickyArchiveTab();
   },
 
   // ===== 日報報告作成タブ =====
