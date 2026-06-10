@@ -2682,8 +2682,20 @@ const App = {
   // ===== Daily Logs =====
   async renderLogs() {
     this.setupLogsTabs();
+    // CEO は初期表示を「履歴」に
+    if (auth.isCEO()) {
+      const histTab = document.querySelector('.logs-tab[data-tab="history"]');
+      const visibleActive = Array.from(document.querySelectorAll('.logs-tab.active'))
+        .find(t => t.style.display !== 'none');
+      if (!visibleActive && histTab) {
+        document.querySelectorAll('.logs-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.logs-tab-pane').forEach(p => p.classList.remove('active'));
+        histTab.classList.add('active');
+        document.getElementById('logsTabHistory').classList.add('active');
+      }
+    }
     const active = document.querySelector('.logs-tab.active');
-    const tabName = active?.dataset.tab || 'timeline';
+    const tabName = active?.dataset.tab || (auth.isCEO() ? 'history' : 'timeline');
     await this.dispatchLogsTab(tabName);
   },
 
