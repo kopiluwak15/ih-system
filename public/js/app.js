@@ -3152,9 +3152,13 @@ const App = {
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">想定時間 *</label>
-          <select id="st_minutes" class="form-select">
+          <select id="st_minutes" class="form-select" style="display:${initialType === 'recurring' ? 'none' : 'block'};">
             ${minutesOptions.map(m => `<option value="${m}" ${m === selectedMin ? 'selected' : ''}>${m >= 60 ? (m / 60 % 1 === 0 ? `${m/60}時間` : `${Math.floor(m/60)}時間${m%60}分`) : `${m}分`}</option>`).join('')}
           </select>
+          <div id="st_minutesFreeWrap" style="display:${initialType === 'recurring' ? 'flex' : 'none'};align-items:center;gap:6px;">
+            <input type="number" id="st_minutesFree" class="form-input" min="1" max="1440" step="1" value="${selectedMin}" style="max-width:110px;">
+            <span style="font-size:12px;color:var(--gray-600);">分（1分刻み）</span>
+          </div>
         </div>
         <div class="form-group">
           <label class="form-label">優先度</label>
@@ -3196,10 +3200,23 @@ const App = {
       const type = document.querySelector('.sticky-type-tab.active')?.dataset.type
         || document.getElementById('st_type')?.value
         || 'once';
+
+      // ルーティンは1分刻みの自由入力、単発はセレクト
+      let estMinutes;
+      if (type === 'recurring') {
+        estMinutes = parseInt(document.getElementById('st_minutesFree')?.value);
+        if (isNaN(estMinutes) || estMinutes < 1 || estMinutes > 1440) {
+          this.toast('想定時間は1〜1440分で入力してください', 'error');
+          return false;
+        }
+      } else {
+        estMinutes = parseInt(document.getElementById('st_minutes').value);
+      }
+
       const data = {
         title,
         description: document.getElementById('st_desc').value.trim(),
-        estimated_minutes: parseInt(document.getElementById('st_minutes').value),
+        estimated_minutes: estMinutes,
         priority: document.getElementById('st_priority').value
       };
 
@@ -3260,6 +3277,21 @@ const App = {
     document.querySelectorAll('.sticky-type-tab').forEach(t => t.classList.toggle('active', t.dataset.type === type));
     const section = document.getElementById('st_recurringSection');
     if (section) section.style.display = type === 'recurring' ? 'block' : 'none';
+
+    // 想定時間入力の切替（単発=セレクト / ルーティン=1分刻み自由入力）
+    const sel = document.getElementById('st_minutes');
+    const freeWrap = document.getElementById('st_minutesFreeWrap');
+    const free = document.getElementById('st_minutesFree');
+    if (sel && freeWrap && free) {
+      if (type === 'recurring') {
+        free.value = sel.value || free.value || 30;
+        sel.style.display = 'none';
+        freeWrap.style.display = 'flex';
+      } else {
+        sel.style.display = 'block';
+        freeWrap.style.display = 'none';
+      }
+    }
   },
 
   toggleRecurOptions() {
