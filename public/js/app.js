@@ -2886,18 +2886,22 @@ const App = {
     }
 
     const placedIds = new Set(slots.map(s => s.sticky_id));
-    const unplaced = stickies.filter(s => !placedIds.has(s.id));
+    // ルーティン付箋は配置済みでも「未配置」扱い（何度でも配置可能）
+    const isRecurring = (s) => s.recurrence_type && s.recurrence_type !== 'once';
+    const unplaced = stickies.filter(s => isRecurring(s) || !placedIds.has(s.id));
 
     // 付箋ボード（数に応じてサイズ調整）
     const manyClass = stickies.length > 12 ? 'many' : '';
 
+    // 15分単位 × 96コマ
     let rowsHtml = '';
-    for (let i = 0; i < 48; i++) {
-      const minutes = i * 30;
+    for (let i = 0; i < 96; i++) {
+      const minutes = i * 15;
       const hh = String(Math.floor(minutes / 60)).padStart(2, '0');
       const mm = String(minutes % 60).padStart(2, '0');
       const isHour = mm === '00';
-      rowsHtml += `<div class="tl-row ${isHour ? 'hour-marker' : ''}" data-min="${minutes}">
+      const isHalf = mm === '30';
+      rowsHtml += `<div class="tl-row ${isHour ? 'hour-marker' : isHalf ? 'half-marker' : ''}" data-min="${minutes}">
         <div class="tl-row-label">${isHour ? hh + ':00' : ''}</div>
         <div class="tl-row-slot" data-min="${minutes}"></div>
       </div>`;
@@ -2939,7 +2943,7 @@ const App = {
           <div class="tl-board-stickies ${showManyClass} ${showStickies.length === 0 ? 'empty' : ''}" id="tlBoard">
             ${showStickies.length === 0 ?
               (activeBoard === 'once' ? '単発付箋がありません。「+ 付箋作成」で追加' : 'ルーティン付箋がありません。「+ 付箋作成」→「🔁 ルーティン」で追加')
-              : showStickies.map(s => this.stickyCardHtml(s, placedIds.has(s.id))).join('')}
+              : showStickies.map(s => this.stickyCardHtml(s, isRecurring(s) ? false : placedIds.has(s.id))).join('')}
           </div>
         </div>
       </div>
@@ -2992,26 +2996,40 @@ const App = {
     if (!tl) return;
     const startRow = tl.querySelector(`.tl-row[data-min="${slot.start_minutes}"]`);
     if (!startRow) return;
-    const rowH = 20; // px per 30分
-    const heightPx = Math.max(20, (slot.duration_minutes / 30) * rowH);
+    const rowH = 16; // px per 15分
+    const heightPx = Math.max(16, (slot.duration_minutes / 15) * rowH);
     const slotEl = startRow.querySelector('.tl-row-slot');
     if (!slotEl) return;
 
-    const div = document.createElement('div');
-    div.className = `tl-placed priority-${sticky.priority || 'medium'}`;
-    div.style.height = heightPx + 'px';
-    div.dataset.slotId = slot.id;
-    div.dataset.stickyId = sticky.id;
     const sh = String(Math.floor(slot.start_minutes / 60)).padStart(2, '0');
     const sm = String(slot.start_minutes % 60).padStart(2, '0');
     const endMin = slot.start_minutes + slot.duration_minutes;
     const eh = String(Math.floor(endMin / 60)).padStart(2, '0');
     const em = String(endMin % 60).padStart(2, '0');
-    div.innerHTML = `
-      <button class="tl-placed-remove" onclick="event.stopPropagation();App.removePlacedSlot('${slot.id}')">×</button>
-      <div>${sticky.title}</div>
-      <div class="tl-placed-time">${sh}:${sm} - ${eh}:${em}（${slot.duration_minutes}分）</div>
-    `;
+    const timeLabel = `${sh}:${sm}-${eh}:${em}`;
+
+    // 30分以下は1行コンパクト表示、それ以上は2行表示
+    const isCompact = slot.duration_minutes <= 30;
+
+    const div = document.createElement('div');
+    div.className = `tl-placed priority-${sticky.priority || 'medium'} ${isCompact ? 'compact' : ''}`;
+    div.style.height = heightPx + 'px';
+    div.dataset.slotId = slot.id;
+    div.dataset.stickyId = sticky.id;
+    div.title = `${sticky.title}（${timeLabel} / ${slot.duration_minutes}分）`;
+    if (isCompact) {
+      div.innerHTML = `
+        <button class="tl-placed-remove" onclick="event.stopPropagation();App.removePlacedSlot('${slot.id}')">×</button>
+        <span class="tl-placed-title">${sticky.title}</span>
+        <span class="tl-placed-time-inline">${timeLabel}</span>
+      `;
+    } else {
+      div.innerHTML = `
+        <button class="tl-placed-remove" onclick="event.stopPropagation();App.removePlacedSlot('${slot.id}')">×</button>
+        <div class="tl-placed-title">${sticky.title}</div>
+        <div class="tl-placed-time">${timeLabel}（${slot.duration_minutes}分）</div>
+      `;
+    }
     slotEl.appendChild(div);
   },
 
@@ -3100,7 +3118,7 @@ const App = {
       }
     }
 
-    const minutesOptions = [15, 30, 45, 60, 90, 120, 180, 240];
+    const minutesOptions = [15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180, 210, 240, 270, 300, 360, 420, 480];
     const selectedMin = existing?.estimated_minutes ?? 30;
     const selectedPrio = existing?.priority ?? 'medium';
     const initialType = existing?.recurrence_type && existing.recurrence_type !== 'once' ? 'recurring' : 'once';
