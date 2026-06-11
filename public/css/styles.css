@@ -1332,6 +1332,62 @@ body {
   box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
 }
 
+/* ===== Google カレンダー予定（灰色ブロック） ===== */
+.tl-gcal {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(107, 114, 128, 0.18),
+    rgba(107, 114, 128, 0.18) 6px,
+    rgba(107, 114, 128, 0.26) 6px,
+    rgba(107, 114, 128, 0.26) 12px
+  );
+  border: 1px dashed var(--gray-400);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 10px;
+  color: var(--gray-600);
+  z-index: 1; /* 付箋(z=2)より下 */
+  pointer-events: none; /* ドロップを邪魔しない */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+.tl-gcal.compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+}
+.tl-gcal-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.tl-gcal-time {
+  font-size: 8px;
+  opacity: 0.7;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tl-gcal-allday {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--gray-100);
+  border: 1px dashed var(--gray-300);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--gray-700);
+  margin-bottom: 6px;
+}
+
 /* 優先度高の高速点滅 */
 @keyframes sticky-high-blink {
   0%, 100% {

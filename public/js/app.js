@@ -208,7 +208,37 @@ const App = {
 
       <div class="card mt-2">
         <div class="card-header">
-          <div class="card-title">📅 Google カレンダー同期</div>
+          <div class="card-title">📥 Google カレンダー → IH-SYSTEM（読み込み）</div>
+        </div>
+        <p class="text-muted" style="font-size:12px;margin-bottom:12px;line-height:1.7;">
+          Google カレンダーの予定をタイムラインに<strong>灰色ブロック</strong>で表示します。<br>
+          予定が入っている時間帯が一目で分かり、付箋の配置計画が立てやすくなります。
+        </p>
+        <div class="form-group">
+          <label class="form-label">iCal 形式の非公開 URL</label>
+          <input type="text" id="gcalUrl" class="form-input" placeholder="https://calendar.google.com/calendar/ical/..../basic.ics" value="${myStaff?.gcal_ical_url || ''}" style="font-size:11px;">
+        </div>
+        <div class="flex gap-1">
+          <button class="btn btn-primary btn-sm" onclick="App.saveGcalUrl()">💾 保存</button>
+          ${myStaff?.gcal_ical_url ? `<button class="btn btn-danger btn-sm" onclick="App.clearGcalUrl()">🗑 解除</button>` : ''}
+        </div>
+        <details style="margin-top:10px;">
+          <summary style="cursor:pointer;font-size:12px;color:var(--primary);font-weight:600;">📖 URL の取得手順</summary>
+          <ol style="font-size:12px;color:var(--gray-700);line-height:1.9;margin:10px 0 0 20px;">
+            <li>PC で <a href="https://calendar.google.com" target="_blank" style="color:var(--primary);">Google カレンダー</a> を開く</li>
+            <li>右上 ⚙ →「設定」</li>
+            <li>左の「マイカレンダーの設定」から同期したいカレンダーを選択</li>
+            <li>「カレンダーの統合」セクションまでスクロール</li>
+            <li><strong>「iCal 形式の非公開 URL」</strong>をコピー</li>
+            <li>上の欄に貼り付けて「💾 保存」</li>
+          </ol>
+          <p style="font-size:11px;color:var(--gray-500);margin-top:8px;">※ この URL は本人のみが知るべき URL です。他人と共有しないでください。</p>
+        </details>
+      </div>
+
+      <div class="card mt-2">
+        <div class="card-header">
+          <div class="card-title">📤 IH-SYSTEM → Google カレンダー（書き出し）</div>
         </div>
         <p class="text-muted" style="font-size:12px;margin-bottom:12px;line-height:1.7;">
           タイムラインのスケジュールを Google カレンダーに自動同期できます。<br>
@@ -261,6 +291,236 @@ const App = {
         <button class="btn btn-primary" onclick="App.changeMyPassword()">🔒 パスワードを変更</button>
       </div>
     `;
+  },
+
+  // ===== Google カレンダー読み込み（インポート） =====
+  async saveGcalUrl() {
+    const url = document.getElementById('gcalUrl')?.value.trim();
+    if (!url) { this.toast('URL を入力してください', 'error'); return; }
+    if (!url.includes('calendar.google.com')) {
+      this.toast('Google カレンダーの iCal URL を入力してください', 'error');
+      return;
+    }
+    try {
+      await db.updateStaff(auth.currentUser.id, { gcal_ical_url: url });
+      sessionStorage.removeItem('gcal_cache');
+      await this.loadAllData();
+      this.renderMyAccount();
+      this.toast('Google カレンダー URL を保存しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message + '（gcal_ical_url カラム未作成の可能性）', 'error');
+    }
+  },
+
+  async clearGcalUrl() {
+    if (!confirm('Google カレンダーの読み込みを解除しますか？')) return;
+    try {
+      await db.updateStaff(auth.currentUser.id, { gcal_ical_url: null });
+      sessionStorage.removeItem('gcal_cache');
+      await this.loadAllData();
+      this.renderMyAccount();
+      this.toast('解除しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  // ICS テキストを取得（5分 sessionStorage キャッシュ）
+  async fetchGcalIcs() {
+    const myStaff = this.state.staff.find(s => s.id === auth.currentUser.id);
+    const url = myStaff?.gcal_ical_url;
+    if (!url) return null;
+
+    try {
+      const cached = JSON.parse(sessionStorage.getItem('gcal_cache') || 'null');
+      if (cached && cached.url === url && Date.now() - cached.at < 5 * 60 * 1000) {
+        return cached.ics;
+      }
+    } catch {}
+
+    try {
+      const res = await fetch('/api/gcal-proxy?url=' + encodeURIComponent(url));
+      if (!res.ok) return null;
+      const ics = await res.text();
+      try {
+        sessionStorage.setItem('gcal_cache', JSON.stringify({ url, at: Date.now(), ics }));
+      } catch {}
+      return ics;
+    } catch {
+      return null;
+    }
+  },
+
+  // ICS をパースして対象日のイベント（分単位）を返す
+  parseGcalEventsForDate(icsText, dateStr) {
+    if (!icsText) return [];
+    // 行の折り返し（RFC5545: 行頭スペースは継続行）を結合
+    const unfolded = icsText.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
+    const lines = unfolded.split(/\r?\n/);
+
+    const events = [];
+    let cur = null;
+    for (const line of lines) {
+      if (line === 'BEGIN:VEVENT') { cur = {}; continue; }
+      if (line === 'END:VEVENT') { if (cur) events.push(cur); cur = null; continue; }
+      if (!cur) continue;
+      const idx = line.indexOf(':');
+      if (idx < 0) continue;
+      const keyPart = line.slice(0, idx);
+      const value = line.slice(idx + 1);
+      const key = keyPart.split(';')[0];
+      if (key === 'DTSTART') cur.dtstart = { raw: value, params: keyPart };
+      else if (key === 'DTEND') cur.dtend = { raw: value, params: keyPart };
+      else if (key === 'SUMMARY') cur.summary = value.replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\n/g, ' ');
+      else if (key === 'RRULE') cur.rrule = value;
+      else if (key === 'EXDATE') (cur.exdates = cur.exdates || []).push(value);
+      else if (key === 'STATUS') cur.status = value;
+    }
+
+    const target = new Date(dateStr + 'T00:00:00+09:00');
+    const targetYmd = dateStr.replace(/-/g, '');
+    const result = [];
+
+    // ICS 日時 → JST の {ymd, minutes} に変換
+    const parseDt = (dt) => {
+      if (!dt) return null;
+      const raw = dt.raw;
+      const isDateOnly = /^\d{8}$/.test(raw) || dt.params.includes('VALUE=DATE');
+      if (isDateOnly) {
+        return { ymd: raw.slice(0, 8), minutes: 0, allDay: true };
+      }
+      const m = raw.match(/^(\d{8})T(\d{2})(\d{2})\d{2}(Z?)$/);
+      if (!m) return null;
+      if (m[4] === 'Z') {
+        // UTC → JST (+9h)
+        const y = +m[1].slice(0, 4), mo = +m[1].slice(4, 6), d = +m[1].slice(6, 8);
+        const utc = Date.UTC(y, mo - 1, d, +m[2], +m[3]);
+        const jst = new Date(utc + 9 * 3600000);
+        const pad = (n) => String(n).padStart(2, '0');
+        return {
+          ymd: `${jst.getUTCFullYear()}${pad(jst.getUTCMonth() + 1)}${pad(jst.getUTCDate())}`,
+          minutes: jst.getUTCHours() * 60 + jst.getUTCMinutes(),
+          allDay: false
+        };
+      }
+      // TZID 付き（多くは Asia/Tokyo）はそのままローカル扱い
+      return { ymd: m[1], minutes: (+m[2]) * 60 + (+m[3]), allDay: false };
+    };
+
+    for (const ev of events) {
+      if (ev.status === 'CANCELLED') continue;
+      const start = parseDt(ev.dtstart);
+      if (!start) continue;
+      const end = parseDt(ev.dtend);
+      const durMin = end && !start.allDay
+        ? this.icsDiffMinutes(start, end)
+        : (start.allDay ? 1440 : 60);
+
+      let occursToday = false;
+
+      if (ev.rrule) {
+        occursToday = this.rruleMatchesDate(ev.rrule, start.ymd, targetYmd);
+        // EXDATE 除外
+        if (occursToday && ev.exdates) {
+          const excluded = ev.exdates.some(ex => ex.replace(/[^0-9]/g, '').startsWith(targetYmd));
+          if (excluded) occursToday = false;
+        }
+      } else {
+        occursToday = start.ymd === targetYmd;
+      }
+
+      if (occursToday) {
+        result.push({
+          title: ev.summary || '(無題)',
+          startMinutes: start.allDay ? 0 : start.minutes,
+          durationMinutes: Math.min(durMin, 1440),
+          allDay: start.allDay
+        });
+      }
+    }
+    return result;
+  },
+
+  icsDiffMinutes(start, end) {
+    const toMs = (x) => {
+      const y = +x.ymd.slice(0, 4), m = +x.ymd.slice(4, 6), d = +x.ymd.slice(6, 8);
+      return Date.UTC(y, m - 1, d) + x.minutes * 60000;
+    };
+    const diff = Math.round((toMs(end) - toMs(start)) / 60000);
+    return diff > 0 ? diff : 60;
+  },
+
+  // 簡易 RRULE 判定（DAILY/WEEKLY/MONTHLY、INTERVAL、UNTIL、BYDAY 対応）
+  rruleMatchesDate(rrule, startYmd, targetYmd) {
+    if (targetYmd < startYmd) return false;
+    const parts = {};
+    rrule.split(';').forEach(p => {
+      const [k, v] = p.split('=');
+      parts[k] = v;
+    });
+    const freq = parts.FREQ;
+    const interval = parseInt(parts.INTERVAL || '1');
+    if (parts.UNTIL) {
+      const until = parts.UNTIL.replace(/[^0-9]/g, '').slice(0, 8);
+      if (targetYmd > until) return false;
+    }
+
+    const toDate = (ymd) => new Date(+ymd.slice(0, 4), +ymd.slice(4, 6) - 1, +ymd.slice(6, 8));
+    const sd = toDate(startYmd);
+    const td = toDate(targetYmd);
+    const dayDiff = Math.round((td - sd) / 86400000);
+
+    if (freq === 'DAILY') {
+      if (parts.COUNT && dayDiff / interval >= parseInt(parts.COUNT)) return false;
+      return dayDiff % interval === 0;
+    }
+    if (freq === 'WEEKLY') {
+      const dayMap = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+      const targetDow = dayMap[td.getDay()];
+      const bydays = parts.BYDAY ? parts.BYDAY.split(',') : [dayMap[sd.getDay()]];
+      if (!bydays.includes(targetDow)) return false;
+      const weekDiff = Math.floor(dayDiff / 7);
+      if (parts.COUNT && weekDiff / interval >= parseInt(parts.COUNT)) return false;
+      return weekDiff % interval === 0 || dayDiff % 7 !== 0 ? (Math.floor(dayDiff / 7) % interval === 0) : true;
+    }
+    if (freq === 'MONTHLY') {
+      const monthDiff = (td.getFullYear() - sd.getFullYear()) * 12 + (td.getMonth() - sd.getMonth());
+      if (monthDiff % interval !== 0) return false;
+      if (parts.BYMONTHDAY) return parts.BYMONTHDAY.split(',').includes(String(td.getDate()));
+      return td.getDate() === sd.getDate();
+    }
+    return false;
+  },
+
+  // タイムラインに Google 予定を灰色ブロックで描画
+  renderGcalBlocks(events) {
+    const tl = document.getElementById('tlTimeline');
+    if (!tl) return;
+    const rowH = 16;
+
+    for (const ev of events) {
+      if (ev.allDay) continue; // 終日はブロック表示しない（ヘッダーに表示）
+      // 15分にスナップ（下方向に拡張）
+      const snapStart = Math.floor(ev.startMinutes / 15) * 15;
+      const startRow = tl.querySelector(`.tl-row[data-min="${snapStart}"]`);
+      if (!startRow) continue;
+      const slotEl = startRow.querySelector('.tl-row-slot');
+      if (!slotEl) continue;
+
+      const heightPx = Math.max(16, (ev.durationMinutes / 15) * rowH);
+      const sh = String(Math.floor(ev.startMinutes / 60)).padStart(2, '0');
+      const sm = String(ev.startMinutes % 60).padStart(2, '0');
+      const endMin = ev.startMinutes + ev.durationMinutes;
+      const eh = String(Math.floor(endMin / 60) % 24).padStart(2, '0');
+      const em = String(endMin % 60).padStart(2, '0');
+
+      const div = document.createElement('div');
+      div.className = 'tl-gcal' + (ev.durationMinutes <= 30 ? ' compact' : '');
+      div.style.height = heightPx + 'px';
+      div.title = `📅 Google: ${ev.title}（${sh}:${sm}-${eh}:${em}）`;
+      div.innerHTML = `<span class="tl-gcal-title">📅 ${ev.title}</span><span class="tl-gcal-time">${sh}:${sm}-${eh}:${em}</span>`;
+      slotEl.appendChild(div);
+    }
   },
 
   // Google カレンダー同期トークン
@@ -3027,6 +3287,25 @@ const App = {
       this.state.tlDate = e.target.value;
       this.renderTimelineTab();
     });
+
+    // Google カレンダー予定を灰色ブロックで重ね描き（非同期・後乗せ）
+    const renderDate = this.state.tlDate;
+    this.fetchGcalIcs().then(ics => {
+      if (!ics || this.state.tlDate !== renderDate) return;
+      const events = this.parseGcalEventsForDate(ics, renderDate);
+      this.renderGcalBlocks(events);
+      // 終日イベントはツールバー下にラベル表示
+      const allDay = events.filter(e => e.allDay);
+      if (allDay.length > 0) {
+        const tl = document.getElementById('tlTimeline');
+        if (tl) {
+          const bar = document.createElement('div');
+          bar.className = 'tl-gcal-allday';
+          bar.innerHTML = '📅 終日: ' + allDay.map(e => e.title).join(' / ');
+          tl.prepend(bar);
+        }
+      }
+    }).catch(() => {});
   },
 
   setTlDate(daysFromToday) {
