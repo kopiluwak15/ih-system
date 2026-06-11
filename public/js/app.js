@@ -208,6 +208,42 @@ const App = {
 
       <div class="card mt-2">
         <div class="card-header">
+          <div class="card-title">📅 Google カレンダー同期</div>
+        </div>
+        <p class="text-muted" style="font-size:12px;margin-bottom:12px;line-height:1.7;">
+          タイムラインのスケジュールを Google カレンダーに自動同期できます。<br>
+          発行した URL を Google カレンダーに登録すると、数時間ごとに自動で反映されます。
+        </p>
+        <div id="calSyncArea">
+          ${myStaff?.calendar_token ? `
+            <div class="form-group">
+              <label class="form-label">同期 URL（このURLは他人に教えないでください）</label>
+              <div style="display:flex;gap:6px;">
+                <input type="text" id="calSyncUrl" class="form-input" readonly value="${location.origin}/api/ical?staff=${me.id}&token=${myStaff.calendar_token}" style="font-size:11px;">
+                <button class="btn btn-secondary" onclick="App.copyCalSyncUrl()">📋 コピー</button>
+              </div>
+            </div>
+            <details style="margin-top:10px;">
+              <summary style="cursor:pointer;font-size:12px;color:var(--primary);font-weight:600;">📖 Google カレンダーへの登録手順</summary>
+              <ol style="font-size:12px;color:var(--gray-700);line-height:1.9;margin:10px 0 0 20px;">
+                <li>上の URL を「📋 コピー」</li>
+                <li>PC で <a href="https://calendar.google.com" target="_blank" style="color:var(--primary);">Google カレンダー</a> を開く</li>
+                <li>左サイドバー「他のカレンダー」の <strong>+</strong> をクリック</li>
+                <li><strong>「URL で追加」</strong>を選択</li>
+                <li>コピーした URL を貼り付けて「カレンダーを追加」</li>
+                <li>「IH-SYSTEM ${me?.name || ''}」カレンダーが追加されます</li>
+              </ol>
+              <p style="font-size:11px;color:var(--gray-500);margin-top:8px;">※ Google 側の仕様で反映は数時間ごとです（即時ではありません）</p>
+            </details>
+            <button class="btn btn-sm btn-danger" style="margin-top:12px;" onclick="App.regenerateCalToken()">🔄 URL を再発行（旧URLは無効化）</button>
+          ` : `
+            <button class="btn btn-primary" onclick="App.generateCalToken()">🔗 同期 URL を発行</button>
+          `}
+        </div>
+      </div>
+
+      <div class="card mt-2">
+        <div class="card-header">
           <div class="card-title">🔒 パスワード変更</div>
         </div>
         <div class="form-group">
@@ -225,6 +261,36 @@ const App = {
         <button class="btn btn-primary" onclick="App.changeMyPassword()">🔒 パスワードを変更</button>
       </div>
     `;
+  },
+
+  // Google カレンダー同期トークン
+  async generateCalToken() {
+    try {
+      const token = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)).replace(/-/g, '');
+      await db.updateStaff(auth.currentUser.id, { calendar_token: token });
+      await this.loadAllData();
+      this.renderMyAccount();
+      this.toast('同期 URL を発行しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message + '（calendar_token カラム未作成の可能性）', 'error');
+    }
+  },
+
+  async regenerateCalToken() {
+    if (!confirm('URL を再発行すると、Google カレンダーに登録済みの旧 URL は無効になります。\nよろしいですか？')) return;
+    await this.generateCalToken();
+  },
+
+  copyCalSyncUrl() {
+    const input = document.getElementById('calSyncUrl');
+    if (!input) return;
+    input.select();
+    navigator.clipboard.writeText(input.value).then(() => {
+      this.toast('URL をコピーしました');
+    }).catch(() => {
+      document.execCommand('copy');
+      this.toast('URL をコピーしました');
+    });
   },
 
   async changeMyPassword() {
