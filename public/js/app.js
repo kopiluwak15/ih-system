@@ -3529,6 +3529,153 @@ const App = {
     else if (tabName === 'calendar') await this.renderCalendarTab();
     else if (tabName === 'archive') await this.renderStickyArchiveTab();
     else if (tabName === 'history' && auth.isCEO()) await this.renderCEOLogsHistory();
+    else if (tabName === 'staffview' && auth.isCEO()) await this.renderCEOStaffTimeline();
+  },
+
+  // ===== CEO 専用：スタッフのタイムライン閲覧 =====
+  async renderCEOStaffTimeline() {
+    const pane = document.getElementById('logsTabStaffview');
+    if (!this.state.svDate) {
+      this.state.svDate = new Date().toISOString().slice(0, 10);
+    }
+    if (!this.state.svStaffId) {
+      const firstStaff = this.state.staff.find(s => s.is_active && s.role !== 'ceo');
+      this.state.svStaffId = firstStaff?.id || '';
+    }
+    if (!this.state.svStaffId) {
+      pane.innerHTML = this.emptyState('👥', 'スタッフが登録されていません', 'スタッフ管理から追加してください');
+      return;
+    }
+
+    const staffOptions = this.state.staff
+      .filter(s => s.is_active && s.role !== 'ceo')
+      .map(s => `<option value="${s.id}" ${s.id === this.state.svStaffId ? 'selected' : ''}>${s.name} (${this.roleLabel(s.role)})</option>`)
+      .join('');
+
+    const targetStaff = this.state.staff.find(s => s.id === this.state.svStaffId);
+    const date = this.state.svDate;
+
+    pane.innerHTML = `
+      <div class="tl-toolbar">
+        <label>👤 スタッフ:</label>
+        <select id="svStaff" class="form-select" style="max-width:220px;">
+          ${staffOptions}
+        </select>
+        <label>📅 対象日:</label>
+        <input type="date" id="svDate" class="form-input" value="${date}" style="max-width:160px;">
+        <button class="btn btn-sm btn-secondary" onclick="App.svShiftDay(-1)">← 前日</button>
+        <button class="btn btn-sm btn-secondary" onclick="App.svShiftDay(0)">今日</button>
+        <button class="btn btn-sm btn-secondary" onclick="App.svShiftDay(1)">翌日 →</button>
+        <span style="flex:1;"></span>
+        <span class="text-muted" style="font-size:11px;">${targetStaff?.name || ''} の ${date}</span>
+      </div>
+      <div id="svContent"><div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div></div>
+    `;
+
+    document.getElementById('svStaff').addEventListener('change', e => {
+      this.state.svStaffId = e.target.value;
+      this.renderCEOStaffTimeline();
+    });
+    document.getElementById('svDate').addEventListener('change', e => {
+      this.state.svDate = e.target.value;
+      this.renderCEOStaffTimeline();
+    });
+
+    await this.renderStaffTimelineContent();
+  },
+
+  svShiftDay(delta) {
+    if (delta === 0) {
+      this.state.svDate = new Date().toISOString().slice(0, 10);
+    } else {
+      const d = new Date(this.state.svDate);
+      d.setDate(d.getDate() + delta);
+      this.state.svDate = d.toISOString().slice(0, 10);
+    }
+    this.renderCEOStaffTimeline();
+  },
+
+  async renderStaffTimelineContent() {
+    const content = document.getElementById('svContent');
+    if (!content) return;
+
+    const staffId = this.state.svStaffId;
+    const date = this.state.svDate;
+    let slots = [], stickies = [];
+    try {
+      slots = await db.getTimelineSlots(staffId, date);
+      // スタッフ全付箋（タイトル参照用）
+      stickies = await db.getStickies(staffId);
+    } catch (e) {
+      content.innerHTML = `<div style="color:var(--danger);padding:20px;">読み込みエラー: ${e.message}</div>`;
+      return;
+    }
+
+    const stickyMap = {};
+    stickies.forEach(s => stickyMap[s.id] = s);
+
+    if (slots.length === 0) {
+      content.innerHTML = `<div class="card"><p class="text-muted" style="text-align:center;padding:30px;">この日のタイムラインは未設定です</p></div>`;
+      return;
+    }
+
+    // 24時間グリッド作成（読み取り専用）
+    let rowsHtml = '';
+    for (let i = 0; i < 96; i++) {
+      const minutes = i * 15;
+      const hh = String(Math.floor(minutes / 60)).padStart(2, '0');
+      const mm = String(minutes % 60).padStart(2, '0');
+      const isHour = mm === '00';
+      const isHalf = mm === '30';
+      rowsHtml += `<div class="tl-row ${isHour ? 'hour-marker' : isHalf ? 'half-marker' : ''}" data-min="${minutes}">
+        <div class="tl-row-label">${isHour ? hh + ':00' : ''}</div>
+        <div class="tl-row-slot" data-min="${minutes}"></div>
+      </div>`;
+    }
+
+    // 統計
+    const totalMin = slots.reduce((s, x) => s + (x.duration_minutes || 0), 0);
+
+    content.innerHTML = `
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+        <span class="badge badge-info">📌 配置 ${slots.length}件</span>
+        <span class="badge badge-gray">⏱ 合計 ${Math.floor(totalMin/60)}時間${totalMin%60}分</span>
+      </div>
+      <div class="tl-layout">
+        <div class="tl-timeline" id="svTimeline">${rowsHtml}</div>
+      </div>
+    `;
+
+    // 配置済みを描画（読み取り専用、× ボタンなし）
+    const tl = document.getElementById('svTimeline');
+    const rowH = 24;
+    for (const slot of slots) {
+      const sticky = stickyMap[slot.sticky_id];
+      if (!sticky) continue;
+      const startRow = tl.querySelector(`.tl-row[data-min="${slot.start_minutes}"]`);
+      if (!startRow) continue;
+      const slotEl = startRow.querySelector('.tl-row-slot');
+      if (!slotEl) continue;
+      const heightPx = Math.max(24, (slot.duration_minutes / 15) * rowH);
+      const sh = String(Math.floor(slot.start_minutes / 60)).padStart(2, '0');
+      const sm = String(slot.start_minutes % 60).padStart(2, '0');
+      const endMin = slot.start_minutes + slot.duration_minutes;
+      const eh = String(Math.floor(endMin / 60)).padStart(2, '0');
+      const em = String(endMin % 60).padStart(2, '0');
+      const timeLabel = `${sh}:${sm}-${eh}:${em}`;
+      const isCompact = slot.duration_minutes <= 30;
+
+      const div = document.createElement('div');
+      div.className = `tl-placed priority-${sticky.priority || 'medium'} ${isCompact ? 'compact' : ''}`;
+      div.style.height = heightPx + 'px';
+      div.title = `${sticky.title}（${timeLabel} / ${slot.duration_minutes}分）`;
+      if (isCompact) {
+        div.innerHTML = `<span class="tl-placed-title">${sticky.title}</span><span class="tl-placed-time-inline">${timeLabel}</span>`;
+      } else {
+        div.innerHTML = `<div class="tl-placed-title">${sticky.title}</div><div class="tl-placed-time">${timeLabel}（${slot.duration_minutes}分）</div>`;
+      }
+      slotEl.appendChild(div);
+    }
   },
 
   // ===== Timeline タブ =====
