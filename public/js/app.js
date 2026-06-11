@@ -645,13 +645,20 @@ const App = {
       <div class="card mt-2">
         <div class="card-header"><div class="card-title">⚙️ 接続設定</div></div>
         <div class="form-group">
-          <label class="form-label">Supabase URL</label>
+          <label class="form-label">Supabase URL（API URL）</label>
           <input type="text" id="dtCfgUrl" class="form-input" placeholder="https://xxxxx.supabase.co" value="${url}">
+          <p style="font-size:11px;color:var(--gray-600);margin-top:4px;line-height:1.6;">
+            ✅ <strong>形式</strong>: <code style="background:var(--gray-100);padding:1px 4px;border-radius:3px;">https://〇〇.supabase.co</code><br>
+            ❌ ダッシュボード URL（<code>supabase.com/dashboard/...</code>）ではありません<br>
+            📍 <strong>例（デジタルツイン専用 DB）</strong>: <code style="background:#dbeafe;padding:1px 4px;border-radius:3px;color:#1e3a8a;">https://jbgqwdyvqpajbavbxems.supabase.co</code>
+          </p>
         </div>
         <div class="form-group">
           <label class="form-label">Supabase Anon Key</label>
           <input type="password" id="dtCfgKey" class="form-input" placeholder="eyJhbGc..." value="${key}">
-          <p style="font-size:11px;color:var(--gray-500);margin-top:4px;">※ 「サインインキー」ではなく Project Settings → API → anon public</p>
+          <p style="font-size:11px;color:var(--gray-600);margin-top:4px;line-height:1.6;">
+            Project Settings → API → <strong>anon public</strong> の値（"eyJhbGc..." で始まる長いキー）
+          </p>
         </div>
         <div class="flex gap-1">
           <button class="btn btn-primary" onclick="App.saveDtConfig()">💾 保存</button>
@@ -679,9 +686,24 @@ const App = {
   },
 
   saveDtConfig() {
-    const url = document.getElementById('dtCfgUrl').value.trim();
+    let url = document.getElementById('dtCfgUrl').value.trim();
     const key = document.getElementById('dtCfgKey').value.trim();
     if (!url || !key) { this.toast('URL と Key の両方が必要', 'error'); return; }
+
+    // ダッシュボード URL を入れたら API URL に自動修正
+    const dashMatch = url.match(/supabase\.com\/dashboard\/project\/([a-z0-9]+)/i);
+    if (dashMatch) {
+      url = `https://${dashMatch[1]}.supabase.co`;
+      this.toast('ダッシュボード URL を API URL に自動修正しました', 'warning');
+    }
+    // 末尾スラッシュ削除
+    url = url.replace(/\/+$/, '');
+    // 形式チェック
+    if (!/^https:\/\/[a-z0-9]+\.supabase\.(co|in)$/i.test(url)) {
+      this.toast('URL 形式が不正です（例: https://xxxxx.supabase.co）', 'error');
+      return;
+    }
+
     localStorage.setItem('dt_supabase_url', url);
     localStorage.setItem('dt_supabase_key', key);
     this.toast('保存しました');
