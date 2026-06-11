@@ -3192,7 +3192,10 @@ const App = {
       const title = document.getElementById('st_title').value.trim();
       if (!title) { this.toast('タイトル必須', 'error'); return false; }
 
-      const type = document.getElementById('st_type').value;
+      // アクティブタブから直接タイプを判定（hidden input への依存を排除）
+      const type = document.querySelector('.sticky-type-tab.active')?.dataset.type
+        || document.getElementById('st_type')?.value
+        || 'once';
       const data = {
         title,
         description: document.getElementById('st_desc').value.trim(),
