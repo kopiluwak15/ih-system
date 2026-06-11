@@ -89,6 +89,9 @@
         <span id="notificationBadge" class="badge hidden">0</span>
       </div>
       <div style="flex:1"></div>
+      <div class="nav-item" data-page="digital-twin" data-ceo-only>
+        <span class="icon">🧠</span><span>デジタルツイン</span>
+      </div>
       <div class="nav-item" data-page="settings">
         <span class="icon">⚙️</span><span>設定</span>
       </div>
@@ -120,6 +123,32 @@
     </section>
 
     <!-- Settings (会社管理・事業店舗) -->
+    <!-- 🧠 Digital Twin (CEO 専用) -->
+    <section id="digital-twin" class="page">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">🧠 デジタルツイン</h2>
+          <p class="page-subtitle">PLAUD → AI 分析 → あなたの完全な理解</p>
+        </div>
+      </div>
+
+      <div class="settings-tabs" id="dtTabs">
+        <button class="dt-tab active" data-tab="dashboard">📊 ダッシュボード</button>
+        <button class="dt-tab" data-tab="entries">📅 日次エントリ</button>
+        <button class="dt-tab" data-tab="insights">💡 インサイト</button>
+        <button class="dt-tab" data-tab="patterns">🔄 パターン</button>
+        <button class="dt-tab" data-tab="people">👥 人物</button>
+        <button class="dt-tab" data-tab="config">⚙️ 接続設定</button>
+      </div>
+
+      <div id="dtTabDashboard" class="dt-tab-pane active"></div>
+      <div id="dtTabEntries" class="dt-tab-pane"></div>
+      <div id="dtTabInsights" class="dt-tab-pane"></div>
+      <div id="dtTabPatterns" class="dt-tab-pane"></div>
+      <div id="dtTabPeople" class="dt-tab-pane"></div>
+      <div id="dtTabConfig" class="dt-tab-pane"></div>
+    </section>
+
     <section id="settings" class="page">
       <div class="page-header">
         <div>

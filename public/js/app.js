@@ -161,7 +161,8 @@ const App = {
       routine: () => this.renderRoutine(),
       staff: () => this.renderStaff(),
       notifications: () => this.renderNotifications(),
-      settings: () => this.renderSettings()
+      settings: () => this.renderSettings(),
+      'digital-twin': () => this.renderDigitalTwin()
     };
     renderers[this.state.currentPage]?.();
   },
@@ -551,6 +552,344 @@ const App = {
       document.execCommand('copy');
       this.toast('URL をコピーしました');
     });
+  },
+
+  // ============================================================
+  // 🧠 Digital Twin（CEO 専用）
+  // 別 Supabase プロジェクトに分離。CEO のブラウザ localStorage のみに URL/Key 保存
+  // ============================================================
+  dtCfg() {
+    return {
+      url: localStorage.getItem('dt_supabase_url') || '',
+      key: localStorage.getItem('dt_supabase_key') || ''
+    };
+  },
+
+  async dtFetch(path) {
+    const { url, key } = this.dtCfg();
+    if (!url || !key) throw new Error('接続設定未完了');
+    const res = await fetch(`${url}/rest/v1${path}`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` }
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+    return res.json();
+  },
+
+  async renderDigitalTwin() {
+    if (!auth.isCEO()) {
+      const pane = document.getElementById('digital-twin');
+      if (pane) pane.querySelector('.dt-tab-pane.active').innerHTML = '<div class="text-muted" style="padding:40px;text-align:center;">アクセス権がありません</div>';
+      return;
+    }
+    this.setupDtTabs();
+    const active = document.querySelector('.dt-tab.active');
+    const tabName = active?.dataset.tab || 'dashboard';
+    // 接続未設定なら強制的に config へ
+    const { url, key } = this.dtCfg();
+    if (!url || !key) {
+      document.querySelectorAll('.dt-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'config'));
+      document.querySelectorAll('.dt-tab-pane').forEach(p => p.classList.remove('active'));
+      document.getElementById('dtTabConfig').classList.add('active');
+      this.renderDtConfig();
+      return;
+    }
+    await this.dispatchDtTab(tabName);
+  },
+
+  setupDtTabs() {
+    if (this._dtTabsSetup) return;
+    this._dtTabsSetup = true;
+    document.querySelectorAll('.dt-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.dt-tab').forEach(t => t.classList.toggle('active', t === tab));
+        document.querySelectorAll('.dt-tab-pane').forEach(p => p.classList.remove('active'));
+        const tabName = tab.dataset.tab;
+        const paneId = 'dtTab' + tabName.charAt(0).toUpperCase() + tabName.slice(1);
+        document.getElementById(paneId)?.classList.add('active');
+        this.dispatchDtTab(tabName);
+      });
+    });
+  },
+
+  async dispatchDtTab(tabName) {
+    try {
+      if (tabName === 'dashboard') await this.renderDtDashboard();
+      else if (tabName === 'entries') await this.renderDtEntries();
+      else if (tabName === 'insights') await this.renderDtInsights();
+      else if (tabName === 'patterns') await this.renderDtPatterns();
+      else if (tabName === 'people') await this.renderDtPeople();
+      else if (tabName === 'config') this.renderDtConfig();
+    } catch (e) {
+      this.dtShowError(tabName, e.message);
+    }
+  },
+
+  dtShowError(tabName, msg) {
+    const paneId = 'dtTab' + tabName.charAt(0).toUpperCase() + tabName.slice(1);
+    const pane = document.getElementById(paneId);
+    if (pane) pane.innerHTML = `<div class="card" style="border-color:var(--danger);"><div style="color:var(--danger);font-size:13px;">読み込みエラー: ${msg}</div></div>`;
+  },
+
+  renderDtConfig() {
+    const pane = document.getElementById('dtTabConfig');
+    const { url, key } = this.dtCfg();
+    pane.innerHTML = `
+      <div class="card" style="background:linear-gradient(135deg, #dbeafe, #bfdbfe);">
+        <div style="font-weight:700;font-size:14px;color:#1e3a8a;margin-bottom:6px;">🔐 厳重に分離されています</div>
+        <p style="font-size:12px;color:#1e40af;line-height:1.7;">
+          このページのデータは <strong>IH-SYSTEM とは別の Supabase プロジェクト</strong>に保存されています。<br>
+          URL と Key は <strong>このブラウザの localStorage のみに保存</strong>され、コード・GitHub・他スタッフには一切露出しません。
+        </p>
+      </div>
+
+      <div class="card mt-2">
+        <div class="card-header"><div class="card-title">⚙️ 接続設定</div></div>
+        <div class="form-group">
+          <label class="form-label">Supabase URL</label>
+          <input type="text" id="dtCfgUrl" class="form-input" placeholder="https://xxxxx.supabase.co" value="${url}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Supabase Anon Key</label>
+          <input type="password" id="dtCfgKey" class="form-input" placeholder="eyJhbGc..." value="${key}">
+          <p style="font-size:11px;color:var(--gray-500);margin-top:4px;">※ 「サインインキー」ではなく Project Settings → API → anon public</p>
+        </div>
+        <div class="flex gap-1">
+          <button class="btn btn-primary" onclick="App.saveDtConfig()">💾 保存</button>
+          <button class="btn btn-secondary" onclick="App.testDtConnection()">🔌 接続テスト</button>
+          ${url || key ? '<button class="btn btn-danger" onclick="App.clearDtConfig()">🗑 解除</button>' : ''}
+        </div>
+        <div id="dtCfgResult" style="margin-top:10px;"></div>
+      </div>
+
+      <div class="card mt-2" style="background:var(--gray-50);">
+        <div class="card-header"><div class="card-title">📋 GAS（Google Apps Script）セットアップ</div></div>
+        <p style="font-size:12px;color:var(--gray-700);line-height:1.7;">
+          PLAUD → Gmail → Apps Script → Claude API → Supabase の自動パイプラインです。<br>
+          毎晩 1:00 に自動で1日分の音声記録を AI 分析して、このページに反映されます。
+        </p>
+        <p style="font-size:12px;color:var(--gray-700);margin-top:8px;">
+          GAS コードは <code style="background:var(--gray-100);padding:2px 6px;border-radius:4px;">/scripts/gas-digital-twin.gs</code> に格納予定。<br>
+          設定する 3 つの値：<br>
+          1. <strong>ANTHROPIC_API_KEY</strong>（<a href="https://console.anthropic.com" target="_blank" style="color:var(--primary);">console.anthropic.com</a> で発行）<br>
+          2. <strong>SUPABASE_URL</strong>（上の URL と同じ）<br>
+          3. <strong>SUPABASE_KEY</strong>（上の Key と同じ）
+        </p>
+      </div>
+    `;
+  },
+
+  saveDtConfig() {
+    const url = document.getElementById('dtCfgUrl').value.trim();
+    const key = document.getElementById('dtCfgKey').value.trim();
+    if (!url || !key) { this.toast('URL と Key の両方が必要', 'error'); return; }
+    localStorage.setItem('dt_supabase_url', url);
+    localStorage.setItem('dt_supabase_key', key);
+    this.toast('保存しました');
+    this.renderDtConfig();
+  },
+
+  clearDtConfig() {
+    if (!confirm('接続設定を解除しますか？')) return;
+    localStorage.removeItem('dt_supabase_url');
+    localStorage.removeItem('dt_supabase_key');
+    this.toast('解除しました');
+    this.renderDtConfig();
+  },
+
+  async testDtConnection() {
+    const resultEl = document.getElementById('dtCfgResult');
+    resultEl.innerHTML = '<div style="color:var(--gray-500);font-size:12px;">接続中...</div>';
+    try {
+      const url = document.getElementById('dtCfgUrl').value.trim();
+      const key = document.getElementById('dtCfgKey').value.trim();
+      const res = await fetch(`${url}/rest/v1/categories?limit=1`, {
+        headers: { apikey: key, Authorization: `Bearer ${key}` }
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      resultEl.innerHTML = `<div style="color:var(--success);font-size:13px;font-weight:600;">✅ 接続成功（categories テーブル ${data.length} 件）</div>`;
+    } catch (e) {
+      resultEl.innerHTML = `<div style="color:var(--danger);font-size:13px;">❌ 接続失敗: ${e.message}</div>`;
+    }
+  },
+
+  async renderDtDashboard() {
+    const pane = document.getElementById('dtTabDashboard');
+    pane.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div>';
+
+    const [entries, insights, patterns, people, profile] = await Promise.all([
+      this.dtFetch('/daily_entries?order=entry_date.desc&limit=200').catch(() => []),
+      this.dtFetch('/insights?status=in.(new,noted)&order=created_at.desc&limit=10').catch(() => []),
+      this.dtFetch('/patterns?order=detected_occurrences.desc&limit=5').catch(() => []),
+      this.dtFetch('/people?order=mention_count.desc&limit=10').catch(() => []),
+      this.dtFetch('/user_profile?limit=1').catch(() => [])
+    ]);
+
+    const recent7 = entries.filter(e => {
+      const d = new Date(e.entry_date);
+      return (Date.now() - d.getTime()) <= 7 * 86400000;
+    });
+    const recent30 = entries.filter(e => {
+      const d = new Date(e.entry_date);
+      return (Date.now() - d.getTime()) <= 30 * 86400000;
+    });
+
+    const avg = (arr, k) => {
+      const vals = arr.filter(x => x[k] != null).map(x => x[k]);
+      return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length * 10) / 10 : null;
+    };
+    const mood7 = avg(recent7, 'energy_level');
+    const stress7 = avg(recent7, 'stress_level');
+
+    pane.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">📚 累計エントリ</div>
+          <div class="stat-value">${entries.length}</div>
+          <div class="stat-trend">直近30日: ${recent30.length}件</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">💡 新着インサイト</div>
+          <div class="stat-value">${insights.length}</div>
+          <div class="stat-trend">未確認</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">⚡ エネルギー（7日平均）</div>
+          <div class="stat-value">${mood7 ?? '-'}</div>
+          <div class="stat-trend">/ 10</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">😰 ストレス（7日平均）</div>
+          <div class="stat-value" style="color:${stress7 >= 7 ? 'var(--danger)' : stress7 >= 5 ? 'var(--warning)' : 'var(--success)'};">${stress7 ?? '-'}</div>
+          <div class="stat-trend">/ 10</div>
+        </div>
+      </div>
+
+      ${entries.length === 0 ? `
+        <div class="card" style="background:linear-gradient(135deg,#fef3c7,#fde68a);border-color:#f59e0b;">
+          <div style="font-weight:700;font-size:14px;color:#92400e;">🌱 まだデータがありません</div>
+          <p style="font-size:13px;color:#78350f;margin-top:6px;line-height:1.7;">
+            ⚙️ 接続設定 タブで Supabase URL/Key を保存し、<br>
+            Google Apps Script で PLAUD パイプラインを有効化してください。<br>
+            毎晩 1:00 に自動でデータが流れ始めます。
+          </p>
+        </div>
+      ` : ''}
+
+      ${insights.length > 0 ? `
+        <h3 style="font-size:15px;margin:16px 0 8px;">💡 最新インサイト</h3>
+        ${insights.slice(0, 5).map(i => `<div class="card" style="padding:10px 14px;margin-bottom:6px;border-left:4px solid ${i.urgency === 'high' ? 'var(--danger)' : i.urgency === 'medium' ? 'var(--warning)' : 'var(--gray-300)'};">
+          <div style="font-weight:600;font-size:13px;">${i.title}</div>
+          ${i.description ? `<div style="font-size:12px;color:var(--gray-700);margin-top:4px;">${i.description}</div>` : ''}
+        </div>`).join('')}
+      ` : ''}
+
+      ${people.length > 0 ? `
+        <h3 style="font-size:15px;margin:16px 0 8px;">👥 主要人物</h3>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          ${people.slice(0, 10).map(p => `<span class="badge badge-info">${p.name}（${p.mention_count}回）</span>`).join('')}
+        </div>
+      ` : ''}
+    `;
+  },
+
+  async renderDtEntries() {
+    const pane = document.getElementById('dtTabEntries');
+    pane.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div>';
+    const entries = await this.dtFetch('/daily_entries?order=entry_date.desc&limit=100');
+
+    if (entries.length === 0) {
+      pane.innerHTML = this.emptyState('📅', 'エントリなし', 'GAS が深夜に自動で追加します');
+      return;
+    }
+
+    pane.innerHTML = entries.map(e => `<div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${e.entry_date}${e.entry_time ? ' ' + e.entry_time.slice(0, 5) : ''}</div>
+          <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">
+            ${e.mood ? `<span class="badge badge-gray">😊 ${e.mood}</span>` : ''}
+            ${e.energy_level != null ? `<span class="badge badge-info">⚡ ${e.energy_level}/10</span>` : ''}
+            ${e.stress_level != null ? `<span class="badge ${e.stress_level >= 7 ? 'badge-danger' : 'badge-warning'}">😰 ${e.stress_level}/10</span>` : ''}
+            ${e.importance ? `<span class="badge badge-success">★ ${e.importance}</span>` : ''}
+          </div>
+        </div>
+      </div>
+      ${e.summary ? `<div style="font-size:13px;color:var(--gray-800);line-height:1.7;margin-top:6px;">${e.summary}</div>` : ''}
+      ${e.people_mentioned?.length ? `<div style="margin-top:8px;font-size:11px;"><strong>👥</strong> ${e.people_mentioned.join(' / ')}</div>` : ''}
+      ${e.key_insights?.length ? `<div style="margin-top:6px;padding:8px 10px;background:var(--primary-light);border-radius:6px;font-size:12px;"><strong>💡 気づき:</strong> ${e.key_insights.join(' / ')}</div>` : ''}
+      ${e.locations?.length ? `<div style="margin-top:6px;font-size:11px;color:var(--gray-500);">📍 ${e.locations.join(' / ')}</div>` : ''}
+    </div>`).join('');
+  },
+
+  async renderDtInsights() {
+    const pane = document.getElementById('dtTabInsights');
+    pane.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div>';
+    const insights = await this.dtFetch('/insights?order=created_at.desc&limit=50');
+    if (insights.length === 0) {
+      pane.innerHTML = this.emptyState('💡', 'インサイトなし', 'AI が分析してここに追加します');
+      return;
+    }
+    const typeIcons = {
+      forgotten_important: '🚨', pattern_recognition: '🔄', behavior_shift: '🔁',
+      opportunity: '✨', risk: '⚠️', consistency: '✅', contradiction: '⚖️', growth: '🌱'
+    };
+    pane.innerHTML = insights.map(i => `<div class="card" style="border-left:5px solid ${i.urgency === 'high' ? 'var(--danger)' : i.urgency === 'medium' ? 'var(--warning)' : 'var(--gray-300)'};">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${typeIcons[i.insight_type] || '💡'} ${i.title}</div>
+          <div style="font-size:11px;color:var(--gray-500);margin-top:2px;">${i.insight_type} ・ ${this.formatDate(i.created_at)}</div>
+        </div>
+        <span class="badge ${i.status === 'new' ? 'badge-info' : i.status === 'actioned' ? 'badge-success' : 'badge-gray'}">${i.status}</span>
+      </div>
+      ${i.description ? `<div style="font-size:13px;color:var(--gray-700);line-height:1.7;">${i.description}</div>` : ''}
+      ${i.ai_commentary ? `<div style="margin-top:8px;padding:8px 10px;background:var(--primary-light);border-radius:6px;font-size:12px;"><strong>🤖 AI:</strong> ${i.ai_commentary}</div>` : ''}
+      ${i.suggested_actions?.length ? `<div style="margin-top:6px;font-size:12px;"><strong>💡 提案:</strong> ${i.suggested_actions.join(' / ')}</div>` : ''}
+    </div>`).join('');
+  },
+
+  async renderDtPatterns() {
+    const pane = document.getElementById('dtTabPatterns');
+    pane.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div>';
+    const patterns = await this.dtFetch('/patterns?order=detected_occurrences.desc&limit=30');
+    if (patterns.length === 0) {
+      pane.innerHTML = this.emptyState('🔄', 'パターンなし', 'AI が繰り返し検出してここに追加します');
+      return;
+    }
+    pane.innerHTML = patterns.map(p => `<div class="card">
+      <div class="card-header">
+        <div class="card-title">${p.is_concerning ? '⚠️ ' : '🔄 '}${p.pattern_name}</div>
+        <span class="badge badge-info">${p.detected_occurrences}回</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+        ${p.pattern_type ? `<span class="badge badge-gray">${p.pattern_type}</span>` : ''}
+        ${p.frequency ? `<span class="badge badge-info">${p.frequency}</span>` : ''}
+        ${p.confidence_level != null ? `<span class="badge badge-success">信頼度 ${Math.round(p.confidence_level * 100)}%</span>` : ''}
+      </div>
+      ${p.description ? `<div style="font-size:13px;color:var(--gray-700);line-height:1.7;">${p.description}</div>` : ''}
+      ${p.trigger ? `<div style="margin-top:6px;font-size:12px;"><strong>📍 きっかけ:</strong> ${p.trigger}</div>` : ''}
+      ${p.response ? `<div style="margin-top:4px;font-size:12px;"><strong>↪️ 反応:</strong> ${p.response}</div>` : ''}
+    </div>`).join('');
+  },
+
+  async renderDtPeople() {
+    const pane = document.getElementById('dtTabPeople');
+    pane.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div>';
+    const people = await this.dtFetch('/people?order=mention_count.desc&limit=100');
+    if (people.length === 0) {
+      pane.innerHTML = this.emptyState('👥', '人物なし', '会話に出てくる人物が自動で蓄積されます');
+      return;
+    }
+    pane.innerHTML = `<div class="bu-grid">${people.map(p => `<div class="bu-card">
+      <div class="bu-card-main">
+        <div class="bu-card-left">
+          <div class="bu-card-name">${p.name}</div>
+          <div class="bu-card-meta">${p.relationship || '関係未分類'} ・ ${p.mention_count}回</div>
+        </div>
+      </div>
+      ${p.last_mentioned_date ? `<div style="font-size:10px;color:var(--gray-500);margin-top:4px;">最終言及: ${p.last_mentioned_date}</div>` : ''}
+      ${p.context_notes ? `<div style="font-size:11px;color:var(--gray-700);margin-top:6px;padding:6px 8px;background:var(--gray-50);border-radius:4px;">${p.context_notes}</div>` : ''}
+    </div>`).join('')}</div>`;
   },
 
   async changeMyPassword() {
