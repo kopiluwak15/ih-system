@@ -20,22 +20,57 @@ const CLAUDE_MODEL      = 'claude-opus-4-7';          // 必要なら "claude-so
 
 // ============ メイン ============
 function dailyAutoProcess() {
+  const logEntry = { status: 'error', message: '' };
   try {
     const email = getLatestPlaudEmail();
-    if (!email.success) { Logger.log('❌ ' + email.message); return; }
-    if (email.text.length < 100) { Logger.log('⚠️ 本文短すぎ'); return; }
+    if (!email.success) {
+      logEntry.message = email.message;
+      saveProcessingLog({ status: 'error', message: email.message });
+      Logger.log('❌ ' + email.message); return;
+    }
+    if (email.text.length < 100) {
+      saveProcessingLog({ status: 'skipped', message: '文字数不足 (' + email.text.length + '文字)', email_date: email.date, email_subject: email.subject });
+      Logger.log('⚠️ 本文短すぎ'); return;
+    }
 
     const alreadyProcessed = isAlreadyProcessed(email.date);
-    if (alreadyProcessed) { Logger.log('✅ 既に処理済み (' + email.date + ')'); return; }
+    if (alreadyProcessed) {
+      saveProcessingLog({ status: 'skipped', message: '既に処理済み', email_date: email.date, email_subject: email.subject });
+      Logger.log('✅ 既に処理済み (' + email.date + ')'); return;
+    }
 
     const analysis = analyzeWithClaude(email.text);
-    if (analysis.error) { Logger.log('❌ AI分析失敗: ' + analysis.error); return; }
+    if (analysis.error) {
+      saveProcessingLog({ status: 'error', message: 'AI分析失敗: ' + analysis.error, email_date: email.date, email_subject: email.subject, char_count: email.text.length });
+      Logger.log('❌ AI分析失敗: ' + analysis.error); return;
+    }
 
     const saved = saveToSupabase(analysis, email.text, email.date);
-    Logger.log(saved.success ? '✅ 保存完了' : '❌ 保存失敗: ' + saved.message);
+    if (saved.success) {
+      saveProcessingLog({ status: 'success', message: '保存完了', email_date: email.date, email_subject: email.subject, char_count: email.text.length, file_name: email.file_name || null, entry_id: saved.entry_id });
+      Logger.log('✅ 保存完了 (entry_id: ' + saved.entry_id + ')');
+    } else {
+      saveProcessingLog({ status: 'error', message: '保存失敗: ' + saved.message, email_date: email.date, email_subject: email.subject, char_count: email.text.length });
+      Logger.log('❌ 保存失敗: ' + saved.message);
+    }
   } catch (e) {
+    saveProcessingLog({ status: 'error', message: e.toString() });
     Logger.log('❌ エラー: ' + e.toString());
   }
+}
+
+function saveProcessingLog(opts) {
+  try {
+    sbInsert('processing_logs', {
+      status: opts.status || 'error',
+      message: opts.message || null,
+      email_date: opts.email_date ? Utilities.formatDate(opts.email_date, 'Asia/Tokyo', 'yyyy-MM-dd') : null,
+      email_subject: opts.email_subject || null,
+      file_name: opts.file_name || null,
+      char_count: opts.char_count || null,
+      entry_id: opts.entry_id || null
+    });
+  } catch (e) { Logger.log('ログ保存失敗: ' + e); }
 }
 
 // 同じ日のエントリが既にあるか
@@ -51,15 +86,33 @@ function isAlreadyProcessed(emailDate) {
   } catch (e) { return false; }
 }
 
-// Gmail から取得
+// Gmail から取得（テキスト添付ファイル優先、なければ本文）
 function getLatestPlaudEmail() {
   try {
     const threads = GmailApp.search(PLAUD_QUERY, 0, 1);
     if (threads.length === 0) return { success: false, message: 'Plaudメール無し' };
     const msgs = threads[0].getMessages();
     const latest = msgs[msgs.length - 1];
+
+    // 1) テキスト添付ファイルを優先（.txt / .text / text/plain）
+    const attachments = latest.getAttachments();
+    for (let i = 0; i < attachments.length; i++) {
+      const att = attachments[i];
+      const name = att.getName().toLowerCase();
+      const type = att.getContentType().toLowerCase();
+      if (name.endsWith('.txt') || name.endsWith('.text') || type.indexOf('text/plain') !== -1) {
+        const text = att.getDataAsString('UTF-8');
+        if (text && text.length >= 100) {
+          Logger.log('📎 添付ファイルから取得: ' + name + ' (' + text.length + '文字)');
+          return { success: true, text: text.trim(), date: latest.getDate(), subject: latest.getSubject(), file_name: att.getName() };
+        }
+      }
+    }
+
+    // 2) 添付なし or 短すぎる場合はメール本文にフォールバック
     let body = latest.getPlainBody() || latest.getBody();
     body = cleanEmailText(body);
+    Logger.log('📧 メール本文から取得 (' + body.length + '文字)');
     return { success: true, text: body, date: latest.getDate(), subject: latest.getSubject() };
   } catch (e) {
     return { success: false, message: e.toString() };

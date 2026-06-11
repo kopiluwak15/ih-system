@@ -618,6 +618,8 @@ const App = {
       else if (tabName === 'insights') await this.renderDtInsights();
       else if (tabName === 'patterns') await this.renderDtPatterns();
       else if (tabName === 'people') await this.renderDtPeople();
+      else if (tabName === 'chat') this.renderDtChat();
+      else if (tabName === 'logs') await this.renderDtLogs();
       else if (tabName === 'config') this.renderDtConfig();
     } catch (e) {
       this.dtShowError(tabName, e.message);
@@ -912,6 +914,89 @@ const App = {
       ${p.last_mentioned_date ? `<div style="font-size:10px;color:var(--gray-500);margin-top:4px;">最終言及: ${p.last_mentioned_date}</div>` : ''}
       ${p.context_notes ? `<div style="font-size:11px;color:var(--gray-700);margin-top:6px;padding:6px 8px;background:var(--gray-50);border-radius:4px;">${p.context_notes}</div>` : ''}
     </div>`).join('')}</div>`;
+  },
+
+  // ── 💬 AI チャット ──────────────────────────────────────────
+  renderDtChat() {
+    const pane = document.getElementById('dtTabChat');
+    pane.innerHTML = `
+      <div style="max-width:700px;margin:0 auto;padding:16px 0;">
+        <p style="font-size:12px;color:var(--gray-500);margin-bottom:16px;">過去の記録をコンテキストとして Claude に質問できます。<br>※ Vercel に ANTHROPIC_API_KEY の設定が必要です。</p>
+        <div id="dtChatHistory" style="min-height:80px;max-height:400px;overflow-y:auto;margin-bottom:12px;display:flex;flex-direction:column;gap:10px;"></div>
+        <div style="display:flex;gap:8px;">
+          <textarea id="dtChatInput" class="form-input" rows="2" placeholder="例）最近ストレスが高い日はどんな共通点がありますか？" style="flex:1;resize:none;"></textarea>
+          <button class="btn btn-primary" onclick="App.sendDtChat()" style="white-space:nowrap;align-self:flex-end;">送信</button>
+        </div>
+      </div>`;
+    document.getElementById('dtChatInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) App.sendDtChat();
+    });
+  },
+
+  async sendDtChat() {
+    const input = document.getElementById('dtChatInput');
+    const question = input.value.trim();
+    if (!question) return;
+    const { url, key } = this.dtCfg();
+    if (!url || !key) { this.toast('接続設定が未完了です', 'error'); return; }
+
+    const history = document.getElementById('dtChatHistory');
+    history.insertAdjacentHTML('beforeend', `<div style="align-self:flex-end;background:var(--primary);color:#fff;padding:8px 12px;border-radius:12px 12px 2px 12px;max-width:80%;font-size:13px;">${this.esc(question)}</div>`);
+    history.insertAdjacentHTML('beforeend', `<div id="dtChatThinking" style="align-self:flex-start;color:var(--gray-500);font-size:12px;">考え中...</div>`);
+    history.scrollTop = history.scrollHeight;
+    input.value = '';
+    input.disabled = true;
+
+    try {
+      const res = await fetch('/api/dt-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, dt_url: url, dt_key: key })
+      });
+      const data = await res.json();
+      document.getElementById('dtChatThinking')?.remove();
+      if (data.error) throw new Error(data.error);
+      history.insertAdjacentHTML('beforeend', `<div style="align-self:flex-start;background:var(--gray-100);padding:10px 14px;border-radius:2px 12px 12px 12px;max-width:85%;font-size:13px;line-height:1.6;white-space:pre-wrap;">${this.esc(data.answer)}</div>`);
+    } catch (e) {
+      document.getElementById('dtChatThinking')?.remove();
+      history.insertAdjacentHTML('beforeend', `<div style="align-self:flex-start;color:var(--danger);font-size:12px;">エラー: ${e.message}</div>`);
+    }
+    input.disabled = false;
+    input.focus();
+    history.scrollTop = history.scrollHeight;
+  },
+
+  // ── 📋 処理ログ ─────────────────────────────────────────────
+  async renderDtLogs() {
+    const pane = document.getElementById('dtTabLogs');
+    pane.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div>';
+    const logs = await this.dtFetch('/processing_logs?order=run_at.desc&limit=50');
+    if (!Array.isArray(logs) || logs.length === 0) {
+      pane.innerHTML = this.emptyState('📋', 'ログなし', 'GASが実行されると処理ログがここに表示されます');
+      return;
+    }
+    const statusIcon = s => s === 'success' ? '✅' : s === 'skipped' ? '⏭️' : '❌';
+    const statusColor = s => s === 'success' ? 'var(--success)' : s === 'skipped' ? 'var(--gray-500)' : 'var(--danger)';
+    pane.innerHTML = `
+      <div style="margin-bottom:8px;font-size:12px;color:var(--gray-500);">直近50件の処理履歴</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${logs.map(l => `
+          <div style="background:var(--gray-50);border:1px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;align-items:flex-start;gap:10px;">
+            <span style="font-size:16px;flex-shrink:0;">${statusIcon(l.status)}</span>
+            <div style="flex:1;min-width:0;">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span style="font-size:12px;font-weight:600;color:${statusColor(l.status)};">${l.status}</span>
+                ${l.email_date ? `<span style="font-size:11px;color:var(--gray-600);">📅 ${l.email_date}</span>` : ''}
+                ${l.char_count ? `<span style="font-size:11px;color:var(--gray-500);">${l.char_count.toLocaleString()}文字</span>` : ''}
+                ${l.file_name ? `<span style="font-size:11px;color:var(--gray-500);">📎 ${this.esc(l.file_name)}</span>` : ''}
+              </div>
+              ${l.message ? `<div style="font-size:11px;color:var(--gray-600);margin-top:3px;">${this.esc(l.message)}</div>` : ''}
+              ${l.email_subject ? `<div style="font-size:11px;color:var(--gray-500);margin-top:2px;">件名: ${this.esc(l.email_subject)}</div>` : ''}
+              <div style="font-size:10px;color:var(--gray-400);margin-top:3px;">${new Date(l.run_at).toLocaleString('ja-JP')}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>`;
   },
 
   async changeMyPassword() {
@@ -5917,6 +6002,11 @@ const App = {
       paused: '停止中'
     }[s] || s;
   },
+  esc(str) {
+    if (str == null) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  },
+
   emptyState(icon, title, desc) {
     return `<div class="empty-state"><div class="icon">${icon}</div><h3>${title}</h3>${desc ? `<p>${desc}</p>` : ''}</div>`;
   },
