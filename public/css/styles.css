@@ -1481,12 +1481,12 @@ body {
   display: grid;
   grid-template-columns: 56px 1fr;
   align-items: stretch;
-  height: 16px; /* 15分 = 16px → 1h = 64px → 24h = 1536px */
-  border-top: 1px dotted var(--gray-100);
+  height: 24px; /* 15分 = 24px → 1h = 96px（4コマ）→ 24h = 2304px */
+  border-top: 1px solid var(--gray-200);
   position: relative;
 }
-.tl-row.hour-marker { border-top: 1px solid var(--gray-300); }
-.tl-row.half-marker { border-top: 1px dashed var(--gray-200); }
+.tl-row.hour-marker { border-top: 2px solid var(--gray-400); }
+.tl-row.half-marker { border-top: 1px solid var(--gray-300); }
 .tl-row-label {
   font-size: 10px;
   color: var(--gray-500);

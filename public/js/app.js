@@ -496,7 +496,7 @@ const App = {
   renderGcalBlocks(events) {
     const tl = document.getElementById('tlTimeline');
     if (!tl) return;
-    const rowH = 16;
+    const rowH = 24;
 
     for (const ev of events) {
       if (ev.allDay) continue; // 終日はブロック表示しない（ヘッダーに表示）
@@ -3341,8 +3341,8 @@ const App = {
     if (!tl) return;
     const startRow = tl.querySelector(`.tl-row[data-min="${slot.start_minutes}"]`);
     if (!startRow) return;
-    const rowH = 16; // px per 15分
-    const heightPx = Math.max(16, (slot.duration_minutes / 15) * rowH);
+    const rowH = 24; // px per 15分（1h = 4コマ = 96px）
+    const heightPx = Math.max(24, (slot.duration_minutes / 15) * rowH);
     const slotEl = startRow.querySelector('.tl-row-slot');
     if (!slotEl) return;
 
