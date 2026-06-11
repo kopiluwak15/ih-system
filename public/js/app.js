@@ -2302,7 +2302,9 @@ const App = {
 
   kpiViewCard(k, level) {
     const range = k.target_value - k.start_value;
-    const rawProgress = range !== 0 ? ((k.current_value - k.start_value) / range) * 100 : 0;
+    // current_value が未更新（== start_value）の場合は必ず 0%
+    const hasActualProgress = k.current_value !== null && k.current_value !== undefined && k.current_value !== k.start_value;
+    const rawProgress = (range !== 0 && hasActualProgress) ? ((k.current_value - k.start_value) / range) * 100 : 0;
     const progress = Math.round(Math.max(0, Math.min(100, rawProgress)));
     const progressColor = progress >= 100 ? '#10b981' : (progress >= 50 ? '#3b82f6' : (progress >= 25 ? '#f59e0b' : '#ef4444'));
     const canComplete = progress >= 100 && !k.archived;
@@ -4482,23 +4484,22 @@ const App = {
     if (myProjects.length === 0) {
       html += `<p class="text-muted" style="font-size:12px;text-align:center;padding:12px;">担当中のアクティブなプロジェクトはありません。</p>`;
     } else {
-      html += '<p class="text-muted" style="font-size:11px;margin-bottom:10px;">本日進めたプロジェクトの進捗率（%）と一言コメントを記録してください。送信時にプロジェクトの進捗バーが更新されます。</p>';
+      html += '<p class="text-muted" style="font-size:11px;margin-bottom:10px;">Lv.3 KPI の現在値を入力してください。送信時に進捗率が自動計算されます。</p>';
       myProjects.forEach(p => {
         const draft = pjMap[p.id] || {};
-        const draftProgress = draft.progress ?? p.progress_percent ?? 0;
         const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
+        const progressColor = (p.progress_percent || 0) >= 75 ? 'var(--success)' : (p.progress_percent || 0) >= 40 ? 'var(--primary)' : 'var(--warning)';
         html += `<div class="report-pj-row" data-project-id="${p.id}" style="padding:10px 12px;background:var(--gray-50);border-radius:8px;margin-bottom:8px;border-left:3px solid var(--primary);">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
             <div style="flex:1;min-width:200px;">
-              <div style="font-weight:600;font-size:13px;">${p.title}</div>
-              <div style="font-size:10px;color:var(--gray-500);margin-top:2px;">${unit?.name || '?'} ・ 現在 ${p.progress_percent || 0}%</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <input type="number" class="form-input report-pj-progress" min="0" max="100" step="1" value="${draftProgress}" style="width:80px;padding:6px 8px;font-size:12px;">
-              <span style="font-size:11px;color:var(--gray-600);">%</span>
+              <div style="font-weight:600;font-size:13px;">${this.esc(p.title)}</div>
+              <div style="font-size:10px;color:var(--gray-500);margin-top:2px;">${this.esc(unit?.name || '?')} ・ <span style="color:${progressColor};font-weight:600;">${p.progress_percent || 0}%</span></div>
             </div>
           </div>
-          <textarea class="form-textarea report-pj-comment" rows="2" placeholder="進めた内容・気づき（任意）" style="margin-top:8px;font-size:12px;">${draft.comment || ''}</textarea>
+          <div class="pj-kpi-inputs" data-solution="${p.solution_type}">
+            <div style="font-size:11px;color:var(--gray-400);padding:6px 0;">⏳ KPI 読み込み中...</div>
+          </div>
+          <textarea class="form-textarea report-pj-comment" rows="2" placeholder="進めた内容・気づき（任意）" style="margin-top:8px;font-size:12px;">${this.esc(draft.comment || '')}</textarea>
         </div>`;
       });
     }
@@ -4522,6 +4523,83 @@ const App = {
       this.state.reportDate = e.target.value;
       this.renderDailyReportTab();
     });
+
+    // KPI 入力欄を非同期で各プロジェクト行に注入
+    this.loadReportKpiInputs(existingPj);
+  },
+
+  async loadReportKpiInputs(existingPj = []) {
+    const pjMap = {};
+    existingPj.forEach(p => { pjMap[p.project_id] = p; });
+
+    for (const row of document.querySelectorAll('.report-pj-row')) {
+      const projectId = row.dataset.projectId;
+      const area = row.querySelector('.pj-kpi-inputs');
+      if (!area) continue;
+
+      const project = this.state.projects.find(p => p.id === projectId);
+      if (!project) { area.innerHTML = ''; continue; }
+
+      if (project.solution_type !== 'kpi') {
+        area.innerHTML = `<div style="font-size:11px;color:var(--gray-400);padding:4px 0;">📌 マイルストーン型：完了報告により進捗が自動更新されます</div>`;
+        continue;
+      }
+
+      const kpis = await db.getKPIs(projectId).catch(() => []);
+      const lv3 = kpis.filter(k => (k.level || 1) === 3 && !k.archived);
+      if (lv3.length === 0) {
+        area.innerHTML = `<div style="font-size:11px;color:var(--warning);padding:4px 0;">⚠️ Lv.3 KPI が未設定です。KPI設計で追加してください。</div>`;
+        continue;
+      }
+
+      const savedKpis = pjMap[projectId]?.kpi_values || {};
+      let kpiHtml = `<div style="font-size:11px;font-weight:600;color:var(--primary-dark);margin-bottom:6px;">📊 Lv.3 KPI 現在値を入力（必須）</div>`;
+      lv3.forEach(k => {
+        const saved = savedKpis[k.id] !== undefined ? savedKpis[k.id] : '';
+        const progressPct = k.target_value !== k.start_value
+          ? Math.round(Math.max(0, Math.min(100, ((k.current_value - k.start_value) / (k.target_value - k.start_value)) * 100)))
+          : 0;
+        kpiHtml += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:140px;">
+            <div style="font-size:12px;font-weight:500;">${this.esc(k.name)}</div>
+            <div style="font-size:10px;color:var(--gray-500);">現在 ${k.current_value}${k.unit ? ' '+k.unit : ''} ／ 目標 ${k.target_value}${k.unit ? ' '+k.unit : ''} <span style="color:var(--primary);">(${progressPct}%)</span></div>
+          </div>
+          <input type="number" class="form-input report-kpi-input" data-kpi-id="${k.id}"
+            placeholder="${k.current_value}" value="${saved}"
+            style="width:90px;padding:5px 8px;font-size:12px;"
+            oninput="App.previewKpiProgress(this)">
+          <span style="font-size:11px;color:var(--gray-500);">${this.esc(k.unit || '')}</span>
+        </div>`;
+      });
+      area.innerHTML = kpiHtml;
+    }
+  },
+
+  previewKpiProgress(inputEl) {
+    const row = inputEl.closest('.report-pj-row');
+    if (!row) return;
+    const projectId = row.dataset.projectId;
+    const project = this.state.projects.find(p => p.id === projectId);
+    if (!project) return;
+    // 全 Lv.3 KPI の入力値を集めてプレビュー進捗を計算
+    let total = 0, count = 0;
+    row.querySelectorAll('.report-kpi-input').forEach(inp => {
+      const kpiId = inp.dataset.kpiId;
+      const val = parseFloat(inp.value);
+      if (!kpiId || isNaN(val)) return;
+      // state から KPI の start/target を探す
+      const kpi = (this._reportKpiCache || {})[kpiId];
+      if (!kpi) return;
+      const range = kpi.target_value - kpi.start_value;
+      if (range === 0) return;
+      total += Math.max(0, Math.min(100, ((val - kpi.start_value) / range) * 100));
+      count++;
+    });
+    if (count > 0) {
+      const preview = Math.round(total / count);
+      const display = row.querySelector('.pj-progress-preview');
+      if (display) display.textContent = `→ 送信後: ${preview}%`;
+    }
   },
 
   setReportDate(daysFromToday) {
@@ -4571,14 +4649,17 @@ const App = {
     const pjs = [];
     document.querySelectorAll('.report-pj-row').forEach(row => {
       const projectId = row.dataset.projectId;
-      const progress = parseInt(row.querySelector('.report-pj-progress').value);
-      const comment = row.querySelector('.report-pj-comment').value.trim();
-      if (projectId && !isNaN(progress)) {
-        pjs.push({
-          project_id: projectId,
-          progress: Math.max(0, Math.min(100, progress)),
-          comment
-        });
+      if (!projectId) return;
+      const comment = row.querySelector('.report-pj-comment')?.value.trim() || '';
+      const kpi_values = {};
+      row.querySelectorAll('.report-kpi-input').forEach(inp => {
+        const kpiId = inp.dataset.kpiId;
+        const val = parseFloat(inp.value);
+        if (kpiId && !isNaN(val)) kpi_values[kpiId] = val;
+      });
+      // KPI値 or コメントがある行のみ収集
+      if (Object.keys(kpi_values).length > 0 || comment) {
+        pjs.push({ project_id: projectId, comment, kpi_values });
       }
     });
     return pjs;
@@ -4664,12 +4745,15 @@ const App = {
         }
       }
 
-      // プロジェクト進捗を反映
+      // プロジェクト進捗を KPI 数値から再計算（手動 % は使わない）
       for (const pj of projects) {
-        await db.updateProject(pj.project_id, {
-          progress_percent: pj.progress,
-          status: pj.progress >= 100 ? 'completed' : 'active'
-        }).catch(() => {});
+        if (pj.kpi_values && Object.keys(pj.kpi_values).length > 0) {
+          for (const [kid, val] of Object.entries(pj.kpi_values)) {
+            await db.updateKPI(kid, { current_value: val }).catch(() => {});
+          }
+          await this.recalculateProgress(pj.project_id);
+        }
+        // KPI値なし（コメントのみ）の場合は進捗を変えない
       }
 
       // 翌日スケジュールを再取得（継続を含めた状態）
@@ -5422,14 +5506,9 @@ const App = {
               for (const [kid, val] of Object.entries(p.kpi_values)) {
                 await db.updateKPI(kid, { current_value: val }).catch(() => {});
               }
-              // Lv.3 反映後に Lv.2/Lv.1 を再計算 + プロジェクト進捗を再算出
               await this.recalculateProgress(p.project_id);
-            } else {
-              await db.updateProject(p.project_id, {
-                progress_percent: p.progress,
-                status: p.progress >= 100 ? 'completed' : 'active'
-              });
             }
+            // KPI値なしの場合は進捗を変えない
           }
 
           // CEO に通知
@@ -5697,6 +5776,8 @@ const App = {
   kpiProgress(k) {
     const range = (k.target_value || 0) - (k.start_value || 0);
     if (range === 0) return 0;
+    // current_value が未更新（== start_value）なら 0%
+    if (k.current_value === null || k.current_value === undefined || k.current_value === k.start_value) return 0;
     const p = ((k.current_value - k.start_value) / range) * 100;
     return Math.max(0, Math.min(100, p));
   },
