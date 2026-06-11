@@ -4062,7 +4062,7 @@ const App = {
     }
   },
 
-  // ===== CEO 履歴タブ（タイムライン日報の閲覧） =====
+  // ===== CEO 履歴タブ（カレンダー表示） =====
   async renderCEOLogsHistory() {
     const pane = document.getElementById('logsTabHistory');
     pane.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div>';
@@ -4070,19 +4070,33 @@ const App = {
     let reports = [];
     try {
       const all = await db.getDailyReports();
-      reports = all.filter(r => (r.status || 'submitted') === 'submitted')
-        .sort((a, b) => (b.submitted_at || '').localeCompare(a.submitted_at || ''));
+      reports = all.filter(r => (r.status || 'submitted') === 'submitted');
     } catch (e) {
       pane.innerHTML = `<div style="color:var(--danger);padding:20px;">読み込みエラー: ${e.message}</div>`;
       return;
     }
 
-    if (!this.state.histFilter) this.state.histFilter = { staffId: '', dateFrom: '', dateTo: '' };
-    const flt = this.state.histFilter;
-    let list = reports;
-    if (flt.staffId) list = list.filter(r => r.staff_id === flt.staffId);
-    if (flt.dateFrom) list = list.filter(r => r.report_date >= flt.dateFrom);
-    if (flt.dateTo) list = list.filter(r => r.report_date <= flt.dateTo);
+    if (!this.state.histYM) {
+      const t = new Date();
+      this.state.histYM = { year: t.getFullYear(), month: t.getMonth() };
+    }
+    if (!this.state.histStaffFilter) this.state.histStaffFilter = '';
+
+    const { year, month } = this.state.histYM;
+    const flt = this.state.histStaffFilter;
+
+    // 月内 + フィルター適用
+    const monthStart = new Date(year, month, 1).toISOString().slice(0, 10);
+    const monthEnd = new Date(year, month + 1, 0).toISOString().slice(0, 10);
+    let monthReports = reports.filter(r => r.report_date >= monthStart && r.report_date <= monthEnd);
+    if (flt) monthReports = monthReports.filter(r => r.staff_id === flt);
+
+    // 日付別グループ化
+    const byDate = {};
+    monthReports.forEach(r => {
+      if (!byDate[r.report_date]) byDate[r.report_date] = [];
+      byDate[r.report_date].push(r);
+    });
 
     // 未提出スタッフ警告（今日基準）
     const today = new Date().toISOString().slice(0, 10);
@@ -4091,8 +4105,39 @@ const App = {
 
     const staffOptions = this.state.staff
       .filter(s => s.role !== 'ceo')
-      .map(s => `<option value="${s.id}" ${flt.staffId === s.id ? 'selected' : ''}>${s.name}</option>`)
+      .map(s => `<option value="${s.id}" ${flt === s.id ? 'selected' : ''}>${s.name}</option>`)
       .join('');
+
+    // カレンダー作成
+    const monthStartDate = new Date(year, month, 1);
+    const monthEndDate = new Date(year, month + 1, 0);
+    const firstDow = monthStartDate.getDay();
+    const daysInMonth = monthEndDate.getDate();
+    const monthName = `${year}年${month + 1}月`;
+
+    let cellsHtml = '';
+    for (let i = 0; i < firstDow; i++) cellsHtml += '<div class="cal-cell cal-empty"></div>';
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const dayReports = byDate[dateStr] || [];
+      const isToday = dateStr === today;
+      const isSelected = this.state.histSelectedDate === dateStr;
+      cellsHtml += `<div class="cal-cell ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''} ${dayReports.length > 0 ? 'has-slots' : ''}" onclick="App.selectHistDate('${dateStr}')">
+        <div class="cal-day-num">${d}</div>
+        ${dayReports.length > 0 ? `<div class="cal-day-count">${dayReports.length}件</div>` : ''}
+      </div>`;
+    }
+
+    // 選択日の詳細
+    let detailHtml = '';
+    if (this.state.histSelectedDate) {
+      const dayReports = byDate[this.state.histSelectedDate] || [];
+      detailHtml = `<div style="margin-top:16px;">
+        <h3 style="font-size:15px;margin-bottom:10px;">📅 ${this.state.histSelectedDate} の日報（${dayReports.length}件）</h3>
+        ${dayReports.length === 0 ? '<p class="text-muted" style="text-align:center;padding:20px;font-size:13px;">この日の日報はありません</p>'
+          : dayReports.map(r => this.renderHistoryReportCard(r)).join('')}
+      </div>`;
+    }
 
     let html = '';
 
@@ -4105,48 +4150,57 @@ const App = {
       </div>`;
     }
 
-    // フィルター
-    html += `<div class="tl-toolbar" style="margin-bottom:12px;">
-      <label>スタッフ:</label>
+    html += `<div class="tl-toolbar">
+      <button class="btn btn-sm btn-secondary" onclick="App.shiftHistMonth(-1)">← 前月</button>
+      <strong style="font-size:14px;min-width:120px;text-align:center;">${monthName}</strong>
+      <button class="btn btn-sm btn-secondary" onclick="App.shiftHistMonth(1)">次月 →</button>
+      <button class="btn btn-sm btn-secondary" onclick="App.gotoHistToday()">今日</button>
+      <label style="margin-left:10px;">スタッフ:</label>
       <select id="histStaff" class="form-select" style="max-width:180px;">
         <option value="">-- 全員 --</option>
         ${staffOptions}
       </select>
-      <label>期間:</label>
-      <input type="date" id="histFrom" class="form-input" value="${flt.dateFrom}" style="max-width:160px;">
-      <span>〜</span>
-      <input type="date" id="histTo" class="form-input" value="${flt.dateTo}" style="max-width:160px;">
-      <button class="btn btn-sm btn-secondary" onclick="App.clearHistFilter()">クリア</button>
       <span style="flex:1;"></span>
-      <span class="text-muted" style="font-size:11px;">${list.length}件表示中（全${reports.length}件）</span>
-    </div>`;
-
-    if (list.length === 0) {
-      html += this.emptyState('📚', '日報なし', 'スタッフが提出した日報がここに表示されます');
-    } else {
-      list.slice(0, 50).forEach(r => {
-        html += this.renderHistoryReportCard(r);
-      });
-    }
+      <span class="text-muted" style="font-size:11px;">${monthName}: ${monthReports.length}件</span>
+    </div>
+    <div class="cal-grid">
+      <div class="cal-weekday sun">日</div>
+      <div class="cal-weekday">月</div>
+      <div class="cal-weekday">火</div>
+      <div class="cal-weekday">水</div>
+      <div class="cal-weekday">木</div>
+      <div class="cal-weekday">金</div>
+      <div class="cal-weekday sat">土</div>
+      ${cellsHtml}
+    </div>
+    ${detailHtml}`;
 
     pane.innerHTML = html;
 
     document.getElementById('histStaff').addEventListener('change', (e) => {
-      this.state.histFilter.staffId = e.target.value;
-      this.renderCEOLogsHistory();
-    });
-    document.getElementById('histFrom').addEventListener('change', (e) => {
-      this.state.histFilter.dateFrom = e.target.value;
-      this.renderCEOLogsHistory();
-    });
-    document.getElementById('histTo').addEventListener('change', (e) => {
-      this.state.histFilter.dateTo = e.target.value;
+      this.state.histStaffFilter = e.target.value;
       this.renderCEOLogsHistory();
     });
   },
 
-  clearHistFilter() {
-    this.state.histFilter = { staffId: '', dateFrom: '', dateTo: '' };
+  selectHistDate(dateStr) {
+    this.state.histSelectedDate = dateStr;
+    this.renderCEOLogsHistory();
+  },
+
+  shiftHistMonth(delta) {
+    const c = this.state.histYM;
+    let y = c.year, m = c.month + delta;
+    if (m < 0) { y--; m = 11; }
+    else if (m > 11) { y++; m = 0; }
+    this.state.histYM = { year: y, month: m };
+    this.renderCEOLogsHistory();
+  },
+
+  gotoHistToday() {
+    const t = new Date();
+    this.state.histYM = { year: t.getFullYear(), month: t.getMonth() };
+    this.state.histSelectedDate = t.toISOString().slice(0, 10);
     this.renderCEOLogsHistory();
   },
 
