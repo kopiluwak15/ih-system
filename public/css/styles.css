@@ -1332,6 +1332,28 @@ body {
   box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
 }
 
+/* 優先度高の高速点滅 */
+@keyframes sticky-high-blink {
+  0%, 100% {
+    background: linear-gradient(135deg, #fecaca, #fca5a5);
+    border-color: #ef4444;
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
+  }
+  50% {
+    background: linear-gradient(135deg, #fca5a5, #f87171);
+    border-color: #b91c1c;
+    box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.55);
+  }
+}
+
+.sticky-card.priority-high {
+  animation: sticky-high-blink 0.7s ease-in-out infinite;
+}
+
+.tl-placed.priority-high {
+  animation: sticky-high-blink 0.7s ease-in-out infinite;
+}
+
 /* Recurring sticky visual hint */
 .sticky-card.recurring {
   background: linear-gradient(135deg, #d1fae5, #a7f3d0);
