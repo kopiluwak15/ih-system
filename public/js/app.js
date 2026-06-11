@@ -4215,6 +4215,41 @@ const App = {
     }
     html += '</div>';
 
+    // プロジェクト進捗
+    const myProjects = this.state.projects.filter(p =>
+      p.status === 'active' && p.assigned_to === staffId
+    );
+    const existingPj = Array.isArray(existingDraft?.projects) ? existingDraft.projects : [];
+    const pjMap = {};
+    existingPj.forEach(p => { pjMap[p.project_id] = p; });
+
+    html += `<div class="card">
+      <div class="card-title" style="margin-bottom:8px;">📊 プロジェクト進捗</div>`;
+    if (myProjects.length === 0) {
+      html += `<p class="text-muted" style="font-size:12px;text-align:center;padding:12px;">担当中のアクティブなプロジェクトはありません。</p>`;
+    } else {
+      html += '<p class="text-muted" style="font-size:11px;margin-bottom:10px;">本日進めたプロジェクトの進捗率（%）と一言コメントを記録してください。送信時にプロジェクトの進捗バーが更新されます。</p>';
+      myProjects.forEach(p => {
+        const draft = pjMap[p.id] || {};
+        const draftProgress = draft.progress ?? p.progress_percent ?? 0;
+        const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
+        html += `<div class="report-pj-row" data-project-id="${p.id}" style="padding:10px 12px;background:var(--gray-50);border-radius:8px;margin-bottom:8px;border-left:3px solid var(--primary);">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+              <div style="font-weight:600;font-size:13px;">${p.title}</div>
+              <div style="font-size:10px;color:var(--gray-500);margin-top:2px;">${unit?.name || '?'} ・ 現在 ${p.progress_percent || 0}%</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <input type="number" class="form-input report-pj-progress" min="0" max="100" step="1" value="${draftProgress}" style="width:80px;padding:6px 8px;font-size:12px;">
+              <span style="font-size:11px;color:var(--gray-600);">%</span>
+            </div>
+          </div>
+          <textarea class="form-textarea report-pj-comment" rows="2" placeholder="進めた内容・気づき（任意）" style="margin-top:8px;font-size:12px;">${draft.comment || ''}</textarea>
+        </div>`;
+      });
+    }
+    html += '</div>';
+
     // 所感
     html += `<div class="card">
       <div class="card-title" style="margin-bottom:8px;">💬 今日の所感</div>
@@ -4278,9 +4313,27 @@ const App = {
     return slots;
   },
 
+  collectReportProjects() {
+    const pjs = [];
+    document.querySelectorAll('.report-pj-row').forEach(row => {
+      const projectId = row.dataset.projectId;
+      const progress = parseInt(row.querySelector('.report-pj-progress').value);
+      const comment = row.querySelector('.report-pj-comment').value.trim();
+      if (projectId && !isNaN(progress)) {
+        pjs.push({
+          project_id: projectId,
+          progress: Math.max(0, Math.min(100, progress)),
+          comment
+        });
+      }
+    });
+    return pjs;
+  },
+
   async saveReportDraft() {
     try {
       const summary = this.collectReportData();
+      const projects = this.collectReportProjects();
       const comment = document.getElementById('reportComment')?.value.trim() || '';
       const staffId = auth.currentUser.id;
       const today = this.state.reportDate;
@@ -4290,6 +4343,7 @@ const App = {
         staff_id: staffId,
         report_date: today,
         timeline_summary: summary,
+        projects,
         comment,
         status: 'draft'
       };
@@ -4307,13 +4361,14 @@ const App = {
   async submitDailyReport() {
     try {
       const summary = this.collectReportData();
-      if (summary.length === 0) {
-        this.toast('送信する付箋がありません', 'error');
+      const projects = this.collectReportProjects();
+      if (summary.length === 0 && projects.length === 0) {
+        this.toast('送信する内容がありません', 'error');
         return;
       }
       const ok = await this.confirmSubmit(
         '日報を送信しますか？',
-        `✅完了: ${summary.filter(s => s.action === 'done').length}件 / 🔄継続: ${summary.filter(s => s.action === 'continue').length}件 / ⏸見送り: ${summary.filter(s => s.action === 'skip').length}件 を送信します。`
+        `✅完了: ${summary.filter(s => s.action === 'done').length}件 / 🔄継続: ${summary.filter(s => s.action === 'continue').length}件 / ⏸見送り: ${summary.filter(s => s.action === 'skip').length}件${projects.length ? ` / 📊プロジェクト進捗: ${projects.length}件` : ''} を送信します。`
       );
       if (!ok) return;
 
@@ -4355,6 +4410,14 @@ const App = {
         }
       }
 
+      // プロジェクト進捗を反映
+      for (const pj of projects) {
+        await db.updateProject(pj.project_id, {
+          progress_percent: pj.progress,
+          status: pj.progress >= 100 ? 'completed' : 'active'
+        }).catch(() => {});
+      }
+
       // 翌日スケジュールを再取得（継続を含めた状態）
       const finalTomorrow = await db.getTimelineSlots(staffId, tomorrow).catch(() => []);
 
@@ -4365,6 +4428,7 @@ const App = {
         staff_id: staffId,
         report_date: today,
         timeline_summary: summary,
+        projects,
         tomorrow_schedule: finalTomorrow.map(ts => ({
           slot_id: ts.id,
           sticky_id: ts.sticky_id,
@@ -4588,20 +4652,41 @@ const App = {
       </div>`;
     }
 
+    // プロジェクト進捗
+    const pjList = Array.isArray(r.projects) ? r.projects : [];
+    let projectsHtml = '';
+    if (pjList.length > 0) {
+      projectsHtml = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--gray-100);">
+        <div style="font-size:12px;font-weight:700;color:var(--gray-700);margin-bottom:6px;">📊 プロジェクト進捗（${pjList.length}件）</div>
+        ${pjList.map(pj => {
+          const project = this.state.projects.find(p => p.id === pj.project_id);
+          return `<div style="padding:6px 10px;background:var(--gray-50);border-left:3px solid var(--primary);border-radius:0 6px 6px 0;margin-bottom:4px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+              <span style="font-weight:600;font-size:12px;">${project?.title || '(削除済みプロジェクト)'}</span>
+              <span class="badge badge-info" style="font-size:10px;">${pj.progress}%</span>
+            </div>
+            ${pj.comment ? `<div style="font-size:11px;color:var(--gray-700);margin-top:2px;">${pj.comment}</div>` : ''}
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+
     return `<div class="card" style="margin-bottom:10px;">
       <div class="card-header">
         <div>
           <div class="card-title">${r.report_date} ${staff?.name ? `・ ${staff.name}` : ''}</div>
           <div class="text-muted" style="font-size:11px;margin-top:2px;">提出 ${r.submitted_at ? this.formatDate(r.submitted_at) : '-'}</div>
         </div>
-        <div style="display:flex;gap:4px;">
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
           <span class="badge badge-success">✅${done}</span>
           ${cont > 0 ? `<span class="badge badge-info">🔄${cont}</span>` : ''}
           ${skip > 0 ? `<span class="badge badge-warning">⏸${skip}</span>` : ''}
+          ${pjList.length > 0 ? `<span class="badge badge-info">📊${pjList.length}</span>` : ''}
           <span class="badge badge-gray">⏱${totalEst}分</span>
         </div>
       </div>
       ${summaryHtml}
+      ${projectsHtml}
       ${r.comment ? `<div style="margin-top:10px;padding:10px 12px;background:var(--primary-light);border-radius:6px;font-size:12px;color:var(--gray-800);">
         <strong>💬 所感:</strong> ${r.comment}
       </div>` : ''}
