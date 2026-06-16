@@ -286,6 +286,23 @@ class SupabaseAPI {
   async markNotificationRead(id) {
     return this.request('PATCH', `/notifications?id=eq.${id}`, { is_read: true });
   }
+
+  // ===== Slogans (ログイン直後のスローガン) =====
+  async getSlogans() {
+    return this.request('GET', '/slogans?order=created_at.desc');
+  }
+
+  async createSlogan(data) {
+    return this.request('POST', '/slogans', data);
+  }
+
+  async updateSlogan(id, data) {
+    return this.request('PATCH', `/slogans?id=eq.${id}`, data);
+  }
+
+  async deleteSlogan(id) {
+    return this.request('DELETE', `/slogans?id=eq.${id}`);
+  }
 }
 
 const db = new SupabaseAPI();

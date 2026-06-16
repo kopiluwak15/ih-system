@@ -12,8 +12,9 @@ const App = {
     notifications: [],
     taskInstructions: [],
     routineTasks: [],
+    slogans: [],
     expandedUnits: new Set(),
-    currentPage: 'dashboard'
+    currentPage: 'home'
   },
 
   // ===== Initialization =====
@@ -40,11 +41,14 @@ const App = {
       overlay?.classList.toggle('open');
     });
     overlay?.addEventListener('click', closeSidebar);
-    // ナビ項目クリック後に閉じる
+    // ナビ項目クリック後は常にドロワーを閉じる（全画面ドロワー化したため）
     document.querySelectorAll('.nav-item').forEach(item => {
-      item.addEventListener('click', () => {
-        if (window.innerWidth < 769) closeSidebar();
-      });
+      item.addEventListener('click', closeSidebar);
+    });
+    // ヘッダーのロゴ → ホーム（スローガン）
+    document.getElementById('headerHome')?.addEventListener('click', () => {
+      this.navigate('home');
+      closeSidebar();
     });
   },
 
@@ -64,6 +68,7 @@ const App = {
       this.state.staff = staff;
       this.state.taskInstructions = taskInstructions.filter(t => !t.archived);
       this.state.routineTasks = routineTasks.filter(r => !r.archived);
+      this.state.slogans = await db.getSlogans().catch(() => []);
 
       if (auth.currentUser?.id) {
         this.state.notifications = await db.getNotifications(auth.currentUser.id);
@@ -91,13 +96,16 @@ const App = {
     const myPending = this.state.taskInstructions.filter(t =>
       t.assigned_to === auth.currentUser.id && t.status === 'pending'
     ).length;
-    const badge = document.getElementById('taskInstructionBadge');
-    if (myPending > 0) {
-      badge.textContent = myPending;
-      badge.classList.remove('hidden');
-    } else {
-      badge.classList.add('hidden');
-    }
+    ['taskInstructionBadge', 'taskInstructionBadgeInner'].forEach(bid => {
+      const badge = document.getElementById(bid);
+      if (!badge) return;
+      if (myPending > 0) {
+        badge.textContent = myPending;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    });
   },
 
   startNotificationPolling() {
@@ -124,13 +132,16 @@ const App = {
   updateApprovalBadge() {
     if (!auth.isCEO()) return;
     const count = this.state.projects.filter(p => p.status === 'pending_approval').length;
-    const badge = document.getElementById('approvalBadge');
-    if (count > 0) {
-      badge.textContent = count;
-      badge.classList.remove('hidden');
-    } else {
-      badge.classList.add('hidden');
-    }
+    ['approvalBadge', 'approvalTabBadge'].forEach(bid => {
+      const badge = document.getElementById(bid);
+      if (!badge) return;
+      if (count > 0) {
+        badge.textContent = count;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    });
   },
 
   // ===== Navigation =====
@@ -152,14 +163,12 @@ const App = {
 
   renderCurrentPage() {
     const renderers = {
+      home: () => this.renderHome(),
       dashboard: () => this.renderDashboard(),
       projects: () => this.renderProjects(),
-      design: () => this.renderDesign(),
-      approval: () => this.renderApproval(),
+      design: () => this.renderDesignPage(),
       logs: () => this.renderLogs(),
-      'task-instructions': () => this.renderTaskInstructions(),
-      routine: () => this.renderRoutine(),
-      staff: () => this.renderStaff(),
+      instructions: () => this.renderInstructionsPage(),
       notifications: () => this.renderNotifications(),
       settings: () => this.renderSettings(),
       'digital-twin': () => this.renderDigitalTwin()
@@ -177,6 +186,8 @@ const App = {
     if (tabName === 'companies') this.renderCompanies();
     else if (tabName === 'business-units') this.renderBusinessUnits();
     else if (tabName === 'my-account') this.renderMyAccount();
+    else if (tabName === 'staff') this.renderStaff();
+    else if (tabName === 'slogans') this.renderSlogans();
   },
 
   setupSettingsTabs() {
@@ -1121,6 +1132,7 @@ const App = {
     document.getElementById('addStaffBtn')?.addEventListener('click', () => this.openStaffModal());
     document.getElementById('addTaskInstructionBtn')?.addEventListener('click', () => this.openTaskInstructionModal());
     document.getElementById('addRoutineTaskBtn')?.addEventListener('click', () => this.openRoutineTaskModal());
+    document.getElementById('addSloganBtn')?.addEventListener('click', () => this.addSloganModal());
   },
 
   // ===== Task Instructions =====
@@ -1614,6 +1626,149 @@ const App = {
     });
   },
 
+  // ===== Home (スローガン着地ページ) =====
+  renderHome() {
+    const container = document.getElementById('homeContent');
+    if (!container) return;
+    const slogans = this.state.slogans || [];
+    // ログインセッション内で1つ選んで固定（毎回の再描画でちらつかないよう保持）
+    if (!this._sessionSlogan) {
+      if (slogans.length > 0) {
+        const idx = Math.floor(Math.random() * slogans.length);
+        this._sessionSlogan = slogans[idx];
+      } else {
+        this._sessionSlogan = null;
+      }
+    }
+    const s = this._sessionSlogan;
+    const me = auth.currentUser;
+    const hour = new Date().getHours();
+    const greet = hour < 5 ? 'お疲れさまです' : hour < 11 ? 'おはようございます' : hour < 17 ? 'こんにちは' : 'お疲れさまです';
+
+    container.innerHTML = `
+      <div class="home-hero">
+        <div class="home-greet">${greet}、${me?.name || ''} さん</div>
+        ${s ? `
+          <div class="home-slogan">${this.esc(s.text)}</div>
+          ${s.author ? `<div class="home-slogan-author">— ${this.esc(s.author)}</div>` : ''}
+        ` : `
+          <div class="home-slogan" style="color:var(--gray-400);">スローガン未登録</div>
+          ${auth.isCEO() ? '<div class="home-slogan-author">設定 → 💬 スローガン から追加できます</div>' : ''}
+        `}
+        <div class="home-actions">
+          <button class="btn btn-primary" onclick="App.navigate('dashboard')">📊 ダッシュボードへ</button>
+          ${!auth.isCEO() ? '<button class="btn btn-secondary" onclick="App.navigate(\'logs\')">📝 日報を書く</button>' : ''}
+        </div>
+      </div>
+    `;
+  },
+
+  // ===== スローガン管理（CEO） =====
+  renderSlogans() {
+    const el = document.getElementById('slogansContent');
+    if (!el) return;
+    const slogans = this.state.slogans || [];
+    if (slogans.length === 0) {
+      el.innerHTML = this.emptyState('💬', 'スローガン未登録', '「+ 追加」で言葉を登録すると、ログイン時にランダム表示されます');
+      return;
+    }
+    el.innerHTML = slogans.map(s => `
+      <div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:14px;line-height:1.6;">${this.esc(s.text)}</div>
+          ${s.author ? `<div class="text-muted" style="font-size:11px;margin-top:4px;">— ${this.esc(s.author)}</div>` : ''}
+        </div>
+        <button class="btn btn-sm btn-danger" onclick="App.deleteSlogan('${s.id}')">削除</button>
+      </div>
+    `).join('');
+  },
+
+  addSloganModal() {
+    this.showModal('💬 スローガンを追加', `
+      <div class="form-group">
+        <label class="form-label">スローガン（言葉）*</label>
+        <textarea id="sl_text" class="form-textarea" rows="3" placeholder="例: 凡事徹底。当たり前を、誰よりも丁寧に。"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">出典・著者（任意）</label>
+        <input type="text" id="sl_author" class="form-input" placeholder="例: 黒田 / 松下幸之助">
+      </div>
+    `, async () => {
+      const text = document.getElementById('sl_text').value.trim();
+      if (!text) { this.toast('スローガンを入力してください', 'error'); return false; }
+      const author = document.getElementById('sl_author').value.trim();
+      try {
+        await db.createSlogan({ text, author: author || null });
+        this.state.slogans = await db.getSlogans().catch(() => []);
+        this.renderSlogans();
+        this.toast('スローガンを追加しました');
+        return true;
+      } catch (e) {
+        this.toast('エラー: ' + e.message, 'error');
+        return false;
+      }
+    }, false, { submitLabel: '➕ 追加', submitClass: 'btn-primary' });
+  },
+
+  async deleteSlogan(id) {
+    if (!confirm('このスローガンを削除しますか？')) return;
+    try {
+      await db.deleteSlogan(id);
+      this.state.slogans = (this.state.slogans || []).filter(s => s.id !== id);
+      this.renderSlogans();
+      this.toast('削除しました');
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  // ===== KPI/マイルストーン設計ページ（設計 / 承認待ち タブ） =====
+  renderDesignPage() {
+    if (!this._designTabsSetup) {
+      this._designTabsSetup = true;
+      document.querySelectorAll('.design-page-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          const name = tab.dataset.tab;
+          document.querySelectorAll('.design-page-tab').forEach(t => t.classList.toggle('active', t === tab));
+          document.getElementById('designPaneDesign').classList.toggle('active', name === 'design');
+          document.getElementById('designPaneApproval').classList.toggle('active', name === 'approval');
+          if (name === 'approval') this.renderApproval(); else this.renderDesign();
+        });
+      });
+    }
+    const activeTab = document.querySelector('.design-page-tab.active')?.dataset.tab || 'design';
+    if (activeTab === 'approval') this.renderApproval(); else this.renderDesign();
+  },
+
+  // ===== 指示一覧ページ（ルーティン / タスク タブ） =====
+  renderInstructionsPage() {
+    if (!this._instructionsTabsSetup) {
+      this._instructionsTabsSetup = true;
+      document.querySelectorAll('.instructions-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          const name = tab.dataset.tab;
+          document.querySelectorAll('.instructions-tab').forEach(t => t.classList.toggle('active', t === tab));
+          document.getElementById('instructionsPaneRoutine').classList.toggle('active', name === 'routine');
+          document.getElementById('instructionsPaneTask').classList.toggle('active', name === 'task');
+          this.updateInstructionsButtons(name);
+          if (name === 'task') this.renderTaskInstructions(); else this.renderRoutine();
+        });
+      });
+    }
+    const activeTab = document.querySelector('.instructions-tab.active')?.dataset.tab || 'routine';
+    this.updateInstructionsButtons(activeTab);
+    if (activeTab === 'task') this.renderTaskInstructions(); else this.renderRoutine();
+  },
+
+  // タブに応じて「+新規ルーティン / +新規タスク」ボタンを出し分け
+  updateInstructionsButtons(tabName) {
+    const isCEO = auth.isCEO();
+    const rBtn = document.getElementById('addRoutineTaskBtn');
+    const tBtn = document.getElementById('addTaskInstructionBtn');
+    if (rBtn) rBtn.style.display = (isCEO && tabName === 'routine') ? '' : 'none';
+    if (tBtn) tBtn.style.display = (isCEO && tabName === 'task') ? '' : 'none';
+  },
+
   // ===== Dashboard =====
   renderDashboard() {
     const container = document.getElementById('dashboardContent');
@@ -1646,100 +1801,77 @@ const App = {
       </div>
     `;
 
-    // 会社別 → 事業別 → プロジェクト ツリー（コンパクト + 展開可能）
-    html += '<div class="hierarchy-tree-v2">';
-    if (this.state.companies.length === 0) {
-      html += this.emptyState('🏢', '会社が未登録', 'まず会社管理から登録してください');
+    // ===== 担当者別グルーピング（誰が何個動かしているか） =====
+    html += '<h3 style="font-size:13px;font-weight:600;color:var(--gray-700);margin:16px 0 8px 0;">👥 担当者別プロジェクト</h3>';
+
+    // 担当者ごとにプロジェクトを集計（進行中のみカウント、表示は全状態）
+    const groups = {};
+    this.state.projects.forEach(p => {
+      const key = p.assigned_to || '__unassigned__';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(p);
+    });
+
+    // 進行中件数の多い順に担当者を並べる（未割り当ては最後）
+    const entries = Object.entries(groups).map(([staffId, projs]) => {
+      const staff = this.state.staff.find(s => s.id === staffId);
+      const activeProjs = projs.filter(p => p.status === 'active');
+      return { staffId, staff, projs, activeCount: activeProjs.length };
+    }).sort((a, b) => {
+      if (a.staffId === '__unassigned__') return 1;
+      if (b.staffId === '__unassigned__') return -1;
+      return b.activeCount - a.activeCount;
+    });
+
+    if (entries.length === 0) {
+      html += this.emptyState('🎯', 'プロジェクトなし', '「課題抽出」から新しい課題を作成してください');
     } else {
-      this.state.companies.forEach(company => {
-        const units = this.state.businessUnits.filter(u => u.company_id === company.id);
-        html += `<div class="company-row">
-          <div class="company-row-header">
-            <span class="company-row-name">${company.name}</span>
-            <span class="company-code">${company.code}</span>
-          </div>`;
+      html += '<div class="assignee-grid">';
+      entries.forEach(({ staffId, staff, projs, activeCount }) => {
+        const name = staffId === '__unassigned__' ? '未割り当て' : (staff?.name || '不明');
+        const avatar = staffId === '__unassigned__' ? '—' : (staff?.name?.charAt(0) || '?');
+        const stalled = projs.filter(p => p.status === 'paused').length;
+        const done = projs.filter(p => p.status === 'completed').length;
+        const hasOverdue = projs.some(p => p.status === 'active' && this.daysUntilDeadline(p.deadline) !== null && this.daysUntilDeadline(p.deadline) < 0);
 
-        if (units.length === 0) {
-          html += '<div class="text-muted" style="padding-left:12px;font-size:11px;">事業未登録</div>';
-        } else {
-          html += '<div class="bu-grid">';
-          units.forEach(unit => {
-            const unitProjects = this.state.projects.filter(p => p.business_unit_id === unit.id);
-            const activeCount = unitProjects.filter(p => p.status === 'active').length;
-            const stalledCount = unitProjects.filter(p => p.status === 'paused').length;
-            const isExpanded = this.state.expandedUnits.has(unit.id);
-            const totalCount = unitProjects.length;
-            // この事業に期限警告のプロジェクトがあるかチェック
-            const hasOverdue = unitProjects.some(p => p.status === 'active' && this.daysUntilDeadline(p.deadline) !== null && this.daysUntilDeadline(p.deadline) < 0);
-            const hasWarning = unitProjects.some(p => p.status === 'active' && (() => { const d = this.daysUntilDeadline(p.deadline); return d !== null && d >= 0 && d <= 10; })());
-            const buAlertClass = hasOverdue ? 'deadline-overdue' : (hasWarning ? 'deadline-warning' : '');
+        // 表示順: 進行中 → 停滞 → その他
+        const sortedProjs = [...projs].sort((a, b) => {
+          const order = { active: 0, paused: 1, pending_design: 2, pending_approval: 2, completed: 3 };
+          return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+        });
 
-            html += `<div class="bu-card ${isExpanded ? 'expanded' : ''} ${buAlertClass}" onclick="App.toggleBusinessUnit('${unit.id}')">
-              <div class="bu-card-main">
-                <div class="bu-card-left">
-                  <div class="bu-card-name">${unit.name}</div>
-                  <div class="bu-card-meta">${unit.code} ・ ${totalCount}件</div>
-                </div>
-                <div class="bu-card-right">
-                  ${hasOverdue ? '<span class="bu-pill bu-pill-stalled">🚨期限超過</span>' : (hasWarning ? '<span class="bu-pill" style="background:#fef3c7;color:#92400e;">⏰期限間近</span>' : '')}
-                  ${activeCount > 0 ? `<span class="bu-pill bu-pill-active">進行${activeCount}</span>` : ''}
-                  ${stalledCount > 0 ? `<span class="bu-pill bu-pill-stalled">停滞${stalledCount}</span>` : ''}
-                  <span class="bu-arrow">${isExpanded ? '▾' : '▸'}</span>
-                </div>
+        html += `<div class="assignee-card ${hasOverdue ? 'deadline-overdue' : ''}">
+          <div class="assignee-head">
+            <div class="assignee-avatar">${avatar}</div>
+            <div style="flex:1;min-width:0;">
+              <div class="assignee-name">${name}</div>
+              <div class="assignee-meta">
+                <span class="bu-pill bu-pill-active">進行 ${activeCount}</span>
+                ${stalled > 0 ? `<span class="bu-pill bu-pill-stalled">停滞 ${stalled}</span>` : ''}
+                ${done > 0 ? `<span class="bu-pill" style="background:#dcfce7;color:#166534;">完了 ${done}</span>` : ''}
+                ${hasOverdue ? '<span class="bu-pill bu-pill-stalled">🚨期限超過</span>' : ''}
               </div>
-              ${isExpanded ? `<div class="bu-card-projects" onclick="event.stopPropagation()">
-                ${unitProjects.length === 0 ? '<div class="text-muted" style="font-size:11px;padding:8px 0;">プロジェクトなし</div>' :
-                  unitProjects.map(p => {
-                    const assignee = this.state.staff.find(s => s.id === p.assigned_to);
-                    const dlClass = this.deadlineClass(p.deadline);
-                    return `<div class="bu-project ${dlClass}" onclick="App.openProjectDetail('${p.id}')">
-                      <div class="bu-project-row">
-                        <span class="badge status-${p.status}" style="font-size:10px;">${this.statusLabel(p.status)}</span>
-                        <span class="bu-project-title">${p.title}</span>
-                        ${this.deadlineTagHtml(p.deadline)}
-                        ${assignee ? `<span class="text-muted" style="font-size:10px;margin-left:auto;">${assignee.name}</span>` : ''}
-                      </div>
-                      <div class="bu-project-progress">
-                        <div class="progress-bar" style="flex:1;height:5px;"><div class="progress-fill" style="width:${p.progress_percent || 0}%"></div></div>
-                        <span style="font-size:10px;color:var(--gray-500);min-width:32px;text-align:right;">${p.progress_percent || 0}%</span>
-                      </div>
-                    </div>`;
-                  }).join('')}
-              </div>` : ''}
-            </div>`;
-          });
-          html += '</div>';
-        }
-        html += '</div>';
-      });
-    }
-    html += '</div>';
-
-    // 進行中プロジェクト一覧（4列グリッド）
-    html += '<h3 style="font-size:13px;font-weight:600;color:var(--gray-700);margin:14px 0 6px 0;">🎯 進行中のプロジェクト</h3>';
-    if (active.length === 0) {
-      html += this.emptyState('🎯', '進行中プロジェクトなし', '「課題抽出」から新しい課題を作成してください');
-    } else {
-      html += '<div class="project-grid">';
-      active.forEach(p => {
-        const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
-        const company = unit ? this.state.companies.find(c => c.id === unit.company_id) : null;
-        const assignee = this.state.staff.find(s => s.id === p.assigned_to);
-        const dlClass = this.deadlineClass(p.deadline);
-        const progressColor = (p.progress_percent || 0) >= 75 ? '#10b981' : (p.progress_percent || 0) >= 50 ? '#3b82f6' : (p.progress_percent || 0) >= 25 ? '#f59e0b' : '#ef4444';
-        html += `<div class="project-card project-card-compact ${dlClass}" onclick="App.openProjectDetail('${p.id}')">
-          <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
-            <span class="badge ${p.solution_type === 'kpi' ? 'badge-info' : 'badge-warning'}" style="font-size:9px;padding:1px 6px;">${p.solution_type === 'kpi' ? 'KPI' : 'MS'}</span>
-            ${this.deadlineTagHtml(p.deadline)}
+            </div>
+            <div class="assignee-count">${activeCount}</div>
           </div>
-          <div class="project-card-title" style="font-size:13px;line-height:1.4;margin-bottom:4px;">${p.title}</div>
-          <div class="project-card-meta" style="font-size:10px;color:var(--gray-500);line-height:1.5;">
-            <div>${company ? company.code : '?'} / ${unit ? unit.name : '?'}</div>
-            ${assignee ? `<div>👤 ${assignee.name}</div>` : ''}
-            ${p.deadline ? `<div>📅 ${p.deadline}</div>` : ''}
+          <div class="assignee-projects">
+            ${sortedProjs.map(p => {
+              const dlClass = this.deadlineClass(p.deadline);
+              const unit = this.state.businessUnits.find(u => u.id === p.business_unit_id);
+              return `<div class="assignee-project ${dlClass}" onclick="App.openProjectDetail('${p.id}')">
+                <div class="assignee-project-row">
+                  <span class="badge status-${p.status}" style="font-size:10px;">${this.statusLabel(p.status)}</span>
+                  <span class="assignee-project-title">${p.title}</span>
+                  ${this.deadlineTagHtml(p.deadline)}
+                  ${unit ? `<span class="text-muted" style="font-size:10px;margin-left:auto;white-space:nowrap;">${unit.name}</span>` : ''}
+                </div>
+                <div class="bu-project-progress">
+                  <div class="progress-bar" style="flex:1;height:5px;"><div class="progress-fill" style="width:${p.progress_percent || 0}%"></div></div>
+                  <span style="font-size:10px;color:var(--gray-500);min-width:32px;text-align:right;">${p.progress_percent || 0}%</span>
+                </div>
+              </div>`;
+            }).join('')}
           </div>
-          <div class="progress-bar" style="height:5px;margin-top:8px;"><div class="progress-fill" style="width:${p.progress_percent || 0}%;background:${progressColor};"></div></div>
-          <div style="display:flex;justify-content:flex-end;font-size:10px;color:var(--gray-500);font-weight:600;margin-top:3px;">${p.progress_percent || 0}%</div>
         </div>`;
       });
       html += '</div>';

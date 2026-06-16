@@ -6,20 +6,86 @@
 class Auth {
   constructor() {
     this.currentUser = null;
+    // 自動ログアウト設定
+    this.IDLE_LIMIT_MS = 30 * 60 * 1000;      // 30分無操作で自動ログアウト
+    this.SESSION_LIMIT_MS = 12 * 60 * 60 * 1000; // 12時間でセッション失効（最新版を取り込むため）
+    this._sessionTimer = null;
   }
 
   async init() {
     const saved = localStorage.getItem('ih_user');
     if (saved) {
+      // セッション失効チェック（12時間経過 or 30分無操作）
+      const expired = this.checkSessionExpiry();
+      if (expired) {
+        this.forceLogout(expired);
+        return;
+      }
       try {
         this.currentUser = JSON.parse(saved);
+        this.touchActivity();
         await this.showApp();
+        this.startSessionGuard();
         return;
       } catch (e) {
         localStorage.removeItem('ih_user');
       }
     }
+    // タイムアウト後のログイン画面メッセージ
+    const msg = sessionStorage.getItem('ih_logout_reason');
+    if (msg) {
+      sessionStorage.removeItem('ih_logout_reason');
+      setTimeout(() => {
+        const el = document.getElementById('loginError');
+        if (el) el.textContent = msg;
+      }, 100);
+    }
     this.showLogin();
+  }
+
+  // 失効していれば理由文字列を返す（していなければ null）
+  checkSessionExpiry() {
+    const loginAt = parseInt(localStorage.getItem('ih_login_at') || '0', 10);
+    const activeAt = parseInt(localStorage.getItem('ih_active_at') || '0', 10);
+    const now = Date.now();
+    if (loginAt && now - loginAt > this.SESSION_LIMIT_MS) {
+      return 'セッションの有効期限（12時間）が切れました。最新版を読み込むため再度ログインしてください。';
+    }
+    if (activeAt && now - activeAt > this.IDLE_LIMIT_MS) {
+      return '一定時間（30分）操作がなかったため自動ログアウトしました。再度ログインしてください。';
+    }
+    return null;
+  }
+
+  touchActivity() {
+    localStorage.setItem('ih_active_at', String(Date.now()));
+  }
+
+  startSessionGuard() {
+    // 操作で最終アクティブ時刻を更新（スロットルして負荷軽減）
+    let last = 0;
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - last > 5000) { last = now; this.touchActivity(); }
+    };
+    ['click', 'keydown', 'mousemove', 'touchstart', 'scroll'].forEach(ev =>
+      window.addEventListener(ev, onActivity, { passive: true })
+    );
+    // 60秒ごとに失効判定
+    if (this._sessionTimer) clearInterval(this._sessionTimer);
+    this._sessionTimer = setInterval(() => {
+      const expired = this.checkSessionExpiry();
+      if (expired) this.forceLogout(expired);
+    }, 60 * 1000);
+  }
+
+  forceLogout(reason) {
+    sessionStorage.setItem('ih_logout_reason', reason);
+    localStorage.removeItem('ih_user');
+    localStorage.removeItem('ih_login_at');
+    localStorage.removeItem('ih_active_at');
+    this.currentUser = null;
+    location.reload();
   }
 
   showLogin() {
@@ -101,7 +167,10 @@ class Auth {
         role: staff.role
       };
       localStorage.setItem('ih_user', JSON.stringify(this.currentUser));
+      localStorage.setItem('ih_login_at', String(Date.now()));
+      this.touchActivity();
       await this.showApp();
+      this.startSessionGuard();
     } catch (err) {
       console.error(err);
       errorEl.textContent = 'ログインエラー: ' + err.message;
@@ -130,6 +199,9 @@ class Auth {
 
   logout() {
     localStorage.removeItem('ih_user');
+    localStorage.removeItem('ih_login_at');
+    localStorage.removeItem('ih_active_at');
+    if (this._sessionTimer) clearInterval(this._sessionTimer);
     this.currentUser = null;
     location.reload();
   }

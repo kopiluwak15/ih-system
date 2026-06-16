@@ -46,10 +46,10 @@
 <!-- ===== App ===== -->
 <div id="app" class="app" style="display: none;">
 
-  <!-- モバイル用ヘッダー -->
+  <!-- 上部ヘッダー（全画面で☰メニュー展開） -->
   <div class="mobile-header">
     <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="メニュー">☰</button>
-    <div class="mobile-header-title">🎯 IH-SYSTEM</div>
+    <div class="mobile-header-title" id="headerHome" style="cursor:pointer;">🎯 IH-SYSTEM</div>
   </div>
 
   <!-- サイドバー開閉オーバーレイ -->
@@ -62,7 +62,10 @@
       <p>経営構造化管理</p>
     </div>
     <nav class="sidebar-nav">
-      <div class="nav-item active" data-page="dashboard">
+      <div class="nav-item active" data-page="home">
+        <span class="icon">🏠</span><span>ホーム</span>
+      </div>
+      <div class="nav-item" data-page="dashboard">
         <span class="icon">📊</span><span>ダッシュボード</span>
       </div>
       <div class="nav-item" data-page="projects">
@@ -70,23 +73,14 @@
       </div>
       <div class="nav-item" data-page="design">
         <span class="icon">📐</span><span>KPI/マイルストーン設計</span>
-      </div>
-      <div class="nav-item" data-page="approval" data-ceo-only>
-        <span class="icon">✅</span><span>承認待ち</span>
         <span id="approvalBadge" class="badge hidden">0</span>
       </div>
       <div class="nav-item" data-page="logs">
-        <span class="icon">📝</span><span>日報</span>
+        <span class="icon">📝</span><span>日報作成</span>
       </div>
-      <div class="nav-item" data-page="task-instructions">
-        <span class="icon">📋</span><span>タスク指示</span>
+      <div class="nav-item" data-page="instructions">
+        <span class="icon">📋</span><span>指示一覧</span>
         <span id="taskInstructionBadge" class="badge hidden">0</span>
-      </div>
-      <div class="nav-item" data-page="routine">
-        <span class="icon">🔄</span><span>ルーティン指示</span>
-      </div>
-      <div class="nav-item" data-page="staff" data-ceo-only>
-        <span class="icon">👥</span><span>スタッフ管理</span>
       </div>
       <div class="nav-item" data-page="notifications">
         <span class="icon">🔔</span><span>通知</span>
@@ -115,12 +109,17 @@
   <!-- ===== Main Content ===== -->
   <main class="main">
 
+    <!-- Home (スローガン着地ページ) -->
+    <section id="home" class="page active">
+      <div id="homeContent"></div>
+    </section>
+
     <!-- Dashboard -->
-    <section id="dashboard" class="page active">
+    <section id="dashboard" class="page">
       <div class="page-header">
         <div>
           <h2 class="page-title">📊 ダッシュボード</h2>
-          <p class="page-subtitle">経営全体の課題進捗を一覧</p>
+          <p class="page-subtitle">担当者ごとに「誰が何個動かしているか」を可視化</p>
         </div>
       </div>
       <div id="dashboardContent"></div>
@@ -167,12 +166,36 @@
 
       <div class="settings-tabs">
         <button class="settings-tab active" data-tab="my-account">👤 マイアカウント</button>
+        <button class="settings-tab" data-tab="staff" data-ceo-only>👥 スタッフ管理</button>
+        <button class="settings-tab" data-tab="slogans" data-ceo-only>💬 スローガン</button>
         <button class="settings-tab" data-tab="companies" data-ceo-only>🏢 会社管理</button>
         <button class="settings-tab" data-tab="business-units" data-ceo-only>🏪 事業・店舗・プロダクト</button>
       </div>
 
       <div class="settings-tab-content active" data-tab-content="my-account">
         <div id="myAccountContent"></div>
+      </div>
+
+      <div class="settings-tab-content" data-tab-content="staff">
+        <div class="flex-between mb-2">
+          <div>
+            <h3 style="font-size:15px;font-weight:600;">スタッフ管理</h3>
+            <p class="text-muted" style="font-size:12px;">アカウント発行・権限管理</p>
+          </div>
+          <button class="btn btn-primary" id="addStaffBtn">+ 新規スタッフ</button>
+        </div>
+        <div id="staffContent"></div>
+      </div>
+
+      <div class="settings-tab-content" data-tab-content="slogans">
+        <div class="flex-between mb-2">
+          <div>
+            <h3 style="font-size:15px;font-weight:600;">スローガン管理</h3>
+            <p class="text-muted" style="font-size:12px;">ログイン直後に表示する言葉。複数登録するとランダムで表示されます。</p>
+          </div>
+          <button class="btn btn-primary" id="addSloganBtn">+ 追加</button>
+        </div>
+        <div id="slogansContent"></div>
       </div>
 
       <div class="settings-tab-content" data-tab-content="companies">
@@ -210,26 +233,26 @@
       <div id="projectsContent"></div>
     </section>
 
-    <!-- Design (KPI/Milestone) -->
+    <!-- Design (KPI/Milestone) + 承認待ち -->
     <section id="design" class="page">
       <div class="page-header">
         <div>
           <h2 class="page-title">📐 KPI/マイルストーン設計</h2>
-          <p class="page-subtitle">担当者が解決策を設計してCEOへ提出</p>
+          <p class="page-subtitle">担当者が解決策を設計してCEOへ提出・CEOが承認</p>
         </div>
       </div>
-      <div id="designContent"></div>
-    </section>
 
-    <!-- Approval -->
-    <section id="approval" class="page">
-      <div class="page-header">
-        <div>
-          <h2 class="page-title">✅ 承認待ち</h2>
-          <p class="page-subtitle">担当者が設計したKPI/マイルストーンを承認</p>
-        </div>
+      <div class="settings-tabs" id="designTabs">
+        <button class="design-page-tab active" data-tab="design">📐 設計</button>
+        <button class="design-page-tab" data-tab="approval" data-ceo-only>✅ 承認待ち <span id="approvalTabBadge" class="badge hidden">0</span></button>
       </div>
-      <div id="approvalContent"></div>
+
+      <div id="designPaneDesign" class="design-page-pane active">
+        <div id="designContent"></div>
+      </div>
+      <div id="designPaneApproval" class="design-page-pane">
+        <div id="approvalContent"></div>
+      </div>
     </section>
 
     <!-- Daily Logs (タイムライン日報) -->
@@ -258,40 +281,30 @@
       <div id="logsTabStaffview" class="logs-tab-pane"></div>
     </section>
 
-    <!-- Task Instructions (タスク指示) -->
-    <section id="task-instructions" class="page">
+    <!-- 指示一覧（ルーティン / タスク タブ） -->
+    <section id="instructions" class="page">
       <div class="page-header">
         <div>
-          <h2 class="page-title">📋 タスク指示</h2>
-          <p class="page-subtitle">明確な指示を出してマネージャーに伝達</p>
+          <h2 class="page-title">📋 指示一覧</h2>
+          <p class="page-subtitle">ルーティン・タスクの指示をまとめて管理</p>
         </div>
-        <button class="btn btn-primary" id="addTaskInstructionBtn" data-ceo-only>+ 新規指示</button>
+        <button class="btn btn-primary" id="addRoutineTaskBtn" data-ceo-only style="display:none;">+ 新規ルーティン</button>
+        <button class="btn btn-primary" id="addTaskInstructionBtn" data-ceo-only>+ 新規タスク</button>
       </div>
-      <div id="taskInstructionsContent"></div>
-    </section>
 
-    <!-- Routine Tasks (ルーティン指示) -->
-    <section id="routine" class="page">
-      <div class="page-header">
-        <div>
-          <h2 class="page-title">🔄 ルーティン指示</h2>
-          <p class="page-subtitle">日次・週次・月次の定期実行タスク</p>
-        </div>
-        <button class="btn btn-primary" id="addRoutineTaskBtn" data-ceo-only>+ 新規ルーティン</button>
+      <div class="settings-tabs" id="instructionsTabs">
+        <button class="instructions-tab active" data-tab="routine">🔄 ルーティン</button>
+        <button class="instructions-tab" data-tab="task">📋 タスク
+          <span id="taskInstructionBadgeInner" class="badge hidden">0</span>
+        </button>
       </div>
-      <div id="routineContent"></div>
-    </section>
 
-    <!-- Staff -->
-    <section id="staff" class="page">
-      <div class="page-header">
-        <div>
-          <h2 class="page-title">👥 スタッフ管理</h2>
-          <p class="page-subtitle">アカウント発行・権限管理</p>
-        </div>
-        <button class="btn btn-primary" id="addStaffBtn">+ 新規スタッフ</button>
+      <div id="instructionsPaneRoutine" class="instructions-pane active">
+        <div id="routineContent"></div>
       </div>
-      <div id="staffContent"></div>
+      <div id="instructionsPaneTask" class="instructions-pane">
+        <div id="taskInstructionsContent"></div>
+      </div>
     </section>
 
     <!-- Notifications -->
