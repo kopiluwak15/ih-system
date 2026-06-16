@@ -1388,35 +1388,30 @@ body {
   margin-bottom: 6px;
 }
 
-/* 優先度高の高速点滅 */
-@keyframes sticky-high-blink {
-  0%, 100% {
-    background: linear-gradient(135deg, #fecaca, #fca5a5);
-    border-color: #ef4444;
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
-  }
-  50% {
-    background: linear-gradient(135deg, #fca5a5, #f87171);
-    border-color: #b91c1c;
-    box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.55);
-  }
-}
+/* ===== 付箋カラーパレット（10色・カテゴリ運用用） =====
+   色はカテゴリ、優先度は点滅速度に分離。各色は CSS 変数で背景/枠/グロウを定義 */
+.sticky-card.color-amber,  .tl-placed.color-amber  { --sc-bg1:#fef3c7; --sc-bg2:#fde68a; --sc-border:#f59e0b; --sc-glow:rgba(245,158,11,.6); --sc-text:#78350f; }
+.sticky-card.color-red,    .tl-placed.color-red    { --sc-bg1:#fee2e2; --sc-bg2:#fecaca; --sc-border:#ef4444; --sc-glow:rgba(239,68,68,.6);  --sc-text:#7f1d1d; }
+.sticky-card.color-orange, .tl-placed.color-orange { --sc-bg1:#ffedd5; --sc-bg2:#fed7aa; --sc-border:#f97316; --sc-glow:rgba(249,115,22,.6); --sc-text:#7c2d12; }
+.sticky-card.color-lime,   .tl-placed.color-lime   { --sc-bg1:#ecfccb; --sc-bg2:#d9f99d; --sc-border:#84cc16; --sc-glow:rgba(132,204,22,.6); --sc-text:#3f6212; }
+.sticky-card.color-green,  .tl-placed.color-green  { --sc-bg1:#dcfce7; --sc-bg2:#bbf7d0; --sc-border:#22c55e; --sc-glow:rgba(34,197,94,.6);  --sc-text:#14532d; }
+.sticky-card.color-teal,   .tl-placed.color-teal   { --sc-bg1:#ccfbf1; --sc-bg2:#99f6e4; --sc-border:#14b8a6; --sc-glow:rgba(20,184,166,.6); --sc-text:#134e4a; }
+.sticky-card.color-blue,   .tl-placed.color-blue   { --sc-bg1:#dbeafe; --sc-bg2:#bfdbfe; --sc-border:#3b82f6; --sc-glow:rgba(59,130,246,.6); --sc-text:#1e3a8a; }
+.sticky-card.color-indigo, .tl-placed.color-indigo { --sc-bg1:#e0e7ff; --sc-bg2:#c7d2fe; --sc-border:#6366f1; --sc-glow:rgba(99,102,241,.6); --sc-text:#312e81; }
+.sticky-card.color-purple, .tl-placed.color-purple { --sc-bg1:#f3e8ff; --sc-bg2:#e9d5ff; --sc-border:#a855f7; --sc-glow:rgba(168,85,247,.6); --sc-text:#581c87; }
+.sticky-card.color-pink,   .tl-placed.color-pink   { --sc-bg1:#fce7f3; --sc-bg2:#fbcfe8; --sc-border:#ec4899; --sc-glow:rgba(236,72,153,.6); --sc-text:#831843; }
 
-.sticky-card.priority-high {
-  animation: sticky-high-blink 0.7s ease-in-out infinite;
+/* ===== 優先度 = 点滅速度（色に依存しない汎用ブリンク） =====
+   低 = 点灯（アニメなし）／ 中 = 点滅 ／ 高 = 高速点滅 */
+@keyframes sticky-blink {
+  0%, 100% { opacity: 1;   box-shadow: 0 0 0 0 transparent; }
+  50%      { opacity: .45; box-shadow: 0 0 10px 2px var(--sc-glow, rgba(0,0,0,.3)); }
 }
+.sticky-card.priority-low,  .tl-placed.priority-low    { /* 点灯：アニメーションなし */ }
+.sticky-card.priority-medium, .tl-placed.priority-medium { animation: sticky-blink 1.4s ease-in-out infinite; }
+.sticky-card.priority-high,   .tl-placed.priority-high   { animation: sticky-blink 0.6s ease-in-out infinite; }
 
-.tl-placed.priority-high {
-  animation: sticky-high-blink 0.7s ease-in-out infinite;
-}
-
-/* Recurring sticky visual hint */
-.sticky-card.recurring {
-  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
-  border-color: #10b981;
-}
-.sticky-card.recurring.priority-high { background: linear-gradient(135deg, #fecaca, #fca5a5); }
-.sticky-card.recurring.priority-low { background: linear-gradient(135deg, #bfdbfe, #93c5fd); }
+/* Recurring sticky visual hint（色はユーザー選択を維持し、🔁 マークのみ付与） */
 .sticky-card.recurring::before {
   content: '🔁';
   position: absolute;
@@ -1506,6 +1501,8 @@ body {
 }
 .tl-row.hour-marker { border-top: 2px solid var(--gray-400); }
 .tl-row.half-marker { border-top: 1px solid var(--gray-300); }
+.tl-row.midnight-marker { border-top: 3px solid #6366f1; }
+.tl-row.midnight-marker .tl-row-label { color: #6366f1; font-weight: 700; }
 .tl-row-label {
   font-size: 10px;
   color: var(--gray-500);
@@ -1524,30 +1521,29 @@ body {
 
 /* Placed sticky (absolute on slot) */
 .tl-placed {
+  --sc-bg1: #fef3c7; --sc-bg2: #fde68a; --sc-border: #f59e0b; --sc-glow: rgba(245,158,11,.6); --sc-text: #78350f;
   position: absolute;
   left: 4px;
   right: 4px;
-  background: linear-gradient(135deg, #fde68a, #fcd34d);
-  border: 1px solid #f59e0b;
+  background: linear-gradient(135deg, var(--sc-bg1), var(--sc-bg2));
+  border: 1px solid var(--sc-border);
   border-radius: 6px;
   padding: 4px 8px;
   font-size: 11px;
   font-weight: 600;
-  color: #78350f;
+  color: var(--sc-text);
   cursor: grab;
   z-index: 2;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  box-shadow: 0 2px 4px rgba(245, 158, 11, 0.2);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
   overflow: hidden;
 }
 .tl-placed:hover {
   filter: brightness(1.05);
-  box-shadow: 0 3px 8px rgba(245, 158, 11, 0.3);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.2);
 }
-.tl-placed.priority-high { background: linear-gradient(135deg, #fecaca, #fca5a5); border-color: #ef4444; color: #7f1d1d; }
-.tl-placed.priority-low { background: linear-gradient(135deg, #bfdbfe, #93c5fd); border-color: #3b82f6; color: #1e3a8a; }
 .tl-placed-time { font-size: 9px; opacity: 0.7; margin-top: 2px; font-weight: 500; }
 .tl-placed-title {
   overflow: hidden;
@@ -1638,8 +1634,10 @@ body {
 }
 
 .sticky-card {
-  background: linear-gradient(135deg, #fef3c7, #fde68a);
-  border: 1px solid #f59e0b;
+  --sc-bg1: #fef3c7; --sc-bg2: #fde68a; --sc-border: #f59e0b; --sc-glow: rgba(245,158,11,.6); --sc-text: #78350f;
+  background: linear-gradient(135deg, var(--sc-bg1), var(--sc-bg2));
+  border: 1px solid var(--sc-border);
+  color: var(--sc-text);
   border-radius: 8px;
   padding: 8px 10px;
   cursor: grab;
@@ -1648,10 +1646,8 @@ body {
   position: relative;
   transition: transform 0.1s, box-shadow 0.1s;
 }
-.sticky-card:hover { box-shadow: 0 4px 10px rgba(245, 158, 11, 0.3); transform: translateY(-1px); }
+.sticky-card:hover { box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18); transform: translateY(-1px); }
 .sticky-card:active { cursor: grabbing; }
-.sticky-card.priority-high { background: linear-gradient(135deg, #fecaca, #fca5a5); border-color: #ef4444; }
-.sticky-card.priority-low { background: linear-gradient(135deg, #bfdbfe, #93c5fd); border-color: #3b82f6; }
 .sticky-card.placed { opacity: 0.4; cursor: not-allowed; }
 .sticky-card-title { font-weight: 600; line-height: 1.3; word-break: break-word; }
 .sticky-card-meta { font-size: 10px; margin-top: 4px; opacity: 0.75; display: flex; gap: 8px; }

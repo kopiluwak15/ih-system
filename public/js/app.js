@@ -3728,16 +3728,20 @@ const App = {
       return;
     }
 
-    // 24時間グリッド作成（読み取り専用）
+    // AM8:00〜翌AM8:00（24時間グリッド・読み取り専用）
+    const SV_START = 8 * 60;
     let rowsHtml = '';
     for (let i = 0; i < 96; i++) {
-      const minutes = i * 15;
-      const hh = String(Math.floor(minutes / 60)).padStart(2, '0');
-      const mm = String(minutes % 60).padStart(2, '0');
+      const minutes = SV_START + i * 15;
+      const dispMin = minutes % (24 * 60);
+      const hh = String(Math.floor(dispMin / 60)).padStart(2, '0');
+      const mm = String(dispMin % 60).padStart(2, '0');
       const isHour = mm === '00';
       const isHalf = mm === '30';
-      rowsHtml += `<div class="tl-row ${isHour ? 'hour-marker' : isHalf ? 'half-marker' : ''}" data-min="${minutes}">
-        <div class="tl-row-label">${isHour ? hh + ':00' : ''}</div>
+      const isMidnight = minutes >= 24 * 60 && dispMin === 0;
+      const label = isHour ? (minutes >= 24 * 60 ? `翌${hh}:00` : `${hh}:00`) : '';
+      rowsHtml += `<div class="tl-row ${isHour ? 'hour-marker' : isHalf ? 'half-marker' : ''} ${isMidnight ? 'midnight-marker' : ''}" data-min="${minutes}">
+        <div class="tl-row-label">${label}</div>
         <div class="tl-row-slot" data-min="${minutes}"></div>
       </div>`;
     }
@@ -3814,16 +3818,20 @@ const App = {
     // 付箋ボード（数に応じてサイズ調整）
     const manyClass = stickies.length > 12 ? 'many' : '';
 
-    // 15分単位 × 96コマ
+    // AM8:00〜翌AM8:00（15分単位 × 96コマ）
+    const TL_START = 8 * 60;
     let rowsHtml = '';
     for (let i = 0; i < 96; i++) {
-      const minutes = i * 15;
-      const hh = String(Math.floor(minutes / 60)).padStart(2, '0');
-      const mm = String(minutes % 60).padStart(2, '0');
+      const minutes = TL_START + i * 15;
+      const dispMin = minutes % (24 * 60);
+      const hh = String(Math.floor(dispMin / 60)).padStart(2, '0');
+      const mm = String(dispMin % 60).padStart(2, '0');
       const isHour = mm === '00';
       const isHalf = mm === '30';
-      rowsHtml += `<div class="tl-row ${isHour ? 'hour-marker' : isHalf ? 'half-marker' : ''}" data-min="${minutes}">
-        <div class="tl-row-label">${isHour ? hh + ':00' : ''}</div>
+      const isMidnight = minutes >= 24 * 60 && dispMin === 0;
+      const label = isHour ? (minutes >= 24 * 60 ? `翌${hh}:00` : `${hh}:00`) : '';
+      rowsHtml += `<div class="tl-row ${isHour ? 'hour-marker' : isHalf ? 'half-marker' : ''} ${isMidnight ? 'midnight-marker' : ''}" data-min="${minutes}">
+        <div class="tl-row-label">${label}</div>
         <div class="tl-row-slot" data-min="${minutes}"></div>
       </div>`;
     }
@@ -3877,6 +3885,7 @@ const App = {
       this.placeStickyOnTimeline(sticky, slot);
     }
 
+    this.state.tlSlots = slots; // drop 時の重複チェック用キャッシュ
     this.setupTimelineDnD();
     document.getElementById('tlDate').addEventListener('change', (e) => {
       this.state.tlDate = e.target.value;
@@ -3910,18 +3919,46 @@ const App = {
     this.renderTimelineTab();
   },
 
+  // 付箋カラーパレット（10色・CSS の color-* クラスと対応）
+  STICKY_COLORS: [
+    { key: 'amber',  label: 'アンバー', bg1: '#fef3c7', bg2: '#fde68a', border: '#f59e0b' },
+    { key: 'red',    label: 'レッド',   bg1: '#fee2e2', bg2: '#fecaca', border: '#ef4444' },
+    { key: 'orange', label: 'オレンジ', bg1: '#ffedd5', bg2: '#fed7aa', border: '#f97316' },
+    { key: 'lime',   label: 'ライム',   bg1: '#ecfccb', bg2: '#d9f99d', border: '#84cc16' },
+    { key: 'green',  label: 'グリーン', bg1: '#dcfce7', bg2: '#bbf7d0', border: '#22c55e' },
+    { key: 'teal',   label: 'ティール', bg1: '#ccfbf1', bg2: '#99f6e4', border: '#14b8a6' },
+    { key: 'blue',   label: 'ブルー',   bg1: '#dbeafe', bg2: '#bfdbfe', border: '#3b82f6' },
+    { key: 'indigo', label: 'インディゴ', bg1: '#e0e7ff', bg2: '#c7d2fe', border: '#6366f1' },
+    { key: 'purple', label: 'パープル', bg1: '#f3e8ff', bg2: '#e9d5ff', border: '#a855f7' },
+    { key: 'pink',   label: 'ピンク',   bg1: '#fce7f3', bg2: '#fbcfe8', border: '#ec4899' }
+  ],
+
+  selectStickyColor(key) {
+    const input = document.getElementById('st_color');
+    if (input) input.value = key;
+    document.querySelectorAll('.st-color-swatch').forEach(el => {
+      const c = this.STICKY_COLORS.find(x => x.key === el.dataset.color);
+      const on = el.dataset.color === key;
+      el.classList.toggle('selected', on);
+      el.style.border = `2px solid ${on ? (c?.border || '#000') : 'transparent'}`;
+    });
+  },
+
   stickyCardHtml(s, isPlaced) {
     const prio = s.priority || 'medium';
+    const color = s.color || 'amber';
     const recur = s.recurrence_type && s.recurrence_type !== 'once' ? s.recurrence_type : null;
     const recurIcon = { daily: '📅 毎日', weekly: '📆 毎週', monthly: '🗓 毎月' }[recur] || '';
+    const prioIcon = prio === 'high' ? '⚡' : prio === 'low' ? '●' : '✨';
     const isRecur = !!recur;
-    return `<div class="sticky-card priority-${prio} ${isPlaced ? 'placed' : ''} ${isRecur ? 'recurring' : ''}" draggable="${!isPlaced}" data-sticky-id="${s.id}" data-min="${s.estimated_minutes}" onclick="App.openStickyModal('${s.id}')" title="クリックで編集">
+    return `<div class="sticky-card color-${color} priority-${prio} ${isPlaced ? 'placed' : ''} ${isRecur ? 'recurring' : ''}" draggable="${!isPlaced}" data-sticky-id="${s.id}" data-min="${s.estimated_minutes}" onclick="App.openStickyModal('${s.id}')" title="クリックで編集">
       <button class="sticky-card-remove" onclick="event.stopPropagation();App.deleteSticky('${s.id}')" title="削除">×</button>
       <div class="sticky-card-title">${s.title}</div>
       <div class="sticky-card-meta">
         <span>⏱ ${s.estimated_minutes}分</span>
-        <span>${prio === 'high' ? '🔴' : prio === 'low' ? '🔵' : '🟡'}</span>
+        <span title="${prio === 'high' ? '高速点滅' : prio === 'low' ? '点灯' : '点滅'}">${prioIcon}</span>
         ${recurIcon ? `<span style="font-size:9px;">${recurIcon}</span>` : ''}
+        ${s.comments && s.comments.length > 0 ? `<span style="font-size:9px;background:#e0e7ff;color:#4338ca;padding:1px 5px;border-radius:3px;">💬 ${s.comments.length}</span>` : ''}
       </div>
     </div>`;
   },
@@ -3952,7 +3989,7 @@ const App = {
     const isCompact = slot.duration_minutes <= 30;
 
     const div = document.createElement('div');
-    div.className = `tl-placed priority-${sticky.priority || 'medium'} ${isCompact ? 'compact' : ''}`;
+    div.className = `tl-placed color-${sticky.color || 'amber'} priority-${sticky.priority || 'medium'} ${isCompact ? 'compact' : ''}`;
     div.style.height = heightPx + 'px';
     div.dataset.slotId = slot.id;
     div.dataset.stickyId = sticky.id;
@@ -3997,6 +4034,22 @@ const App = {
         const dur = parseInt(e.dataTransfer.getData('text/min'));
         const startMin = parseInt(slot.dataset.min);
         if (!stickyId || isNaN(dur) || isNaN(startMin)) return;
+
+        // 重複チェック
+        const endMin = startMin + dur;
+        const existing = (this.state.tlSlots || []).find(s => {
+          const sEnd = s.start_minutes + s.duration_minutes;
+          return startMin < sEnd && s.start_minutes < endMin;
+        });
+        if (existing) {
+          const sh = String(Math.floor(existing.start_minutes / 60)).padStart(2, '0');
+          const sm = String(existing.start_minutes % 60).padStart(2, '0');
+          const eh = String(Math.floor((existing.start_minutes + existing.duration_minutes) / 60)).padStart(2, '0');
+          const em = String((existing.start_minutes + existing.duration_minutes) % 60).padStart(2, '0');
+          this.toast(`⚠️ ${sh}:${sm}〜${eh}:${em} の付箋と重なります`, 'error');
+          return;
+        }
+
         try {
           await db.createTimelineSlot({
             sticky_id: stickyId,
@@ -4061,6 +4114,12 @@ const App = {
     const minutesOptions = [15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180, 210, 240, 270, 300, 360, 420, 480];
     const selectedMin = existing?.estimated_minutes ?? 30;
     const selectedPrio = existing?.priority ?? 'medium';
+    const selectedColor = existing?.color || 'amber';
+    const colorSwatches = this.STICKY_COLORS.map(c =>
+      `<button type="button" class="st-color-swatch ${c.key === selectedColor ? 'selected' : ''}" data-color="${c.key}" title="${c.label}"
+        onclick="App.selectStickyColor('${c.key}')"
+        style="width:30px;height:30px;border-radius:8px;cursor:pointer;background:linear-gradient(135deg,${c.bg1},${c.bg2});border:2px solid ${c.key === selectedColor ? c.border : 'transparent'};outline:1px solid var(--border);"></button>`
+    ).join('');
     const initialType = existing?.recurrence_type && existing.recurrence_type !== 'once' ? 'recurring' : 'once';
     const recurType = existing?.recurrence_type && existing.recurrence_type !== 'once' ? existing.recurrence_type : 'daily';
     const recurDays = Array.isArray(existing?.recurrence_days) ? existing.recurrence_days : [];
@@ -4101,13 +4160,20 @@ const App = {
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label">優先度</label>
+          <label class="form-label">優先度（点滅で表現）</label>
           <select id="st_priority" class="form-select">
-            <option value="high" ${selectedPrio === 'high' ? 'selected' : ''}>🔴 高</option>
-            <option value="medium" ${selectedPrio === 'medium' ? 'selected' : ''}>🟡 中</option>
-            <option value="low" ${selectedPrio === 'low' ? 'selected' : ''}>🔵 低</option>
+            <option value="high" ${selectedPrio === 'high' ? 'selected' : ''}>⚡ 高（高速点滅）</option>
+            <option value="medium" ${selectedPrio === 'medium' ? 'selected' : ''}>✨ 中（点滅）</option>
+            <option value="low" ${selectedPrio === 'low' ? 'selected' : ''}>● 低（点灯）</option>
           </select>
         </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">🎨 色（カテゴリ）</label>
+        <input type="hidden" id="st_color" value="${selectedColor}">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">${colorSwatches}</div>
+        <p style="font-size:11px;color:var(--gray-600);margin-top:6px;">色は自由にカテゴリとして使えます（例: 青=営業／緑=制作／赤=至急 など）。点滅は優先度、色は分類です。</p>
       </div>
 
       <div id="st_recurringSection" style="display:${initialType === 'recurring' ? 'block' : 'none'};margin-top:8px;padding:12px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-radius:8px;border:1px solid #93c5fd;">
@@ -4157,7 +4223,8 @@ const App = {
         title,
         description: document.getElementById('st_desc').value.trim(),
         estimated_minutes: estMinutes,
-        priority: document.getElementById('st_priority').value
+        priority: document.getElementById('st_priority').value,
+        color: document.getElementById('st_color').value || 'amber'
       };
 
       if (type === 'recurring') {
@@ -4357,6 +4424,41 @@ const App = {
     this.renderStickyArchiveTab();
   },
 
+  // 付箋コメント履歴 HTML（3件超でアコーディオン）
+  renderStickyCommentHistory(comments) {
+    if (!comments || comments.length === 0) return '';
+    const actionLabel = { done: '✅ 完了', continue: '🔄 継続', skip: '⏸ 見送り' };
+    const actionColor = { done: '#d1fae5', continue: '#dbeafe', skip: '#fef3c7' };
+    const renderRow = (c) => {
+      const dt = new Date(c.timestamp);
+      const label = `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+      const al = actionLabel[c.action] || c.action;
+      const ac = actionColor[c.action] || '#f3f4f6';
+      return `<div style="display:flex;gap:6px;align-items:flex-start;padding:4px 0;border-bottom:1px solid var(--border,#e5e7eb);">
+        <span style="white-space:nowrap;font-size:10px;color:#888;flex-shrink:0;">${label}</span>
+        <span style="white-space:nowrap;font-size:9px;background:${ac};padding:1px 5px;border-radius:3px;flex-shrink:0;">${al}</span>
+        <span style="font-size:11px;line-height:1.5;word-break:break-all;">${this.esc(c.text)}</span>
+      </div>`;
+    };
+    const FOLD = 3;
+    if (comments.length <= FOLD) {
+      return `<div style="margin-top:8px;padding:6px 8px;background:#f9fafb;border-radius:6px;border:1px solid var(--border,#e5e7eb);">
+        <div style="font-size:10px;font-weight:600;color:#6b7280;margin-bottom:4px;">💬 コメント履歴（${comments.length}件）</div>
+        ${comments.map(renderRow).join('')}
+      </div>`;
+    }
+    const shown = comments.slice(-FOLD);
+    const hidden = comments.slice(0, -FOLD);
+    const hiddenId = `cmthist_${Math.random().toString(36).slice(2)}`;
+    return `<div style="margin-top:8px;padding:6px 8px;background:#f9fafb;border-radius:6px;border:1px solid var(--border,#e5e7eb);">
+      <div style="font-size:10px;font-weight:600;color:#6b7280;margin-bottom:4px;">💬 コメント履歴（${comments.length}件）</div>
+      <div id="${hiddenId}" style="display:none;">${hidden.map(renderRow).join('')}</div>
+      ${shown.map(renderRow).join('')}
+      <button type="button" onclick="const el=document.getElementById('${hiddenId}');const open=el.style.display!=='none';el.style.display=open?'none':'block';this.textContent=open?'▼ 過去${hidden.length}件をみる':'▲ 折りたたむ';"
+        style="margin-top:4px;font-size:10px;color:#6b7280;background:none;border:none;cursor:pointer;padding:0;">▼ 過去${hidden.length}件をみる</button>
+    </div>`;
+  },
+
   // ===== 日報報告作成タブ =====
   async renderDailyReportTab() {
     const pane = document.getElementById('logsTabReport');
@@ -4381,6 +4483,7 @@ const App = {
 
     const stickyMap = {};
     stickies.forEach(s => { stickyMap[s.id] = s; });
+    this.state.reportStickies = stickies; // submitDailyReport でコメント追記に使用
 
     // 既存の draft（同日分）を取得
     let existingDraft = null;
@@ -4421,10 +4524,11 @@ const App = {
         const eh = String(Math.floor(endMin / 60)).padStart(2, '0');
         const em = String(endMin % 60).padStart(2, '0');
         const action = draft.action || 'done';
-        html += `<div class="report-slot" data-slot-id="${slot.id}" data-sticky-id="${s.id}" data-est="${s.estimated_minutes}" style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--gray-50);">
+        const isRecurSticky = s.recurrence_type && s.recurrence_type !== 'once';
+        html += `<div class="report-slot" data-slot-id="${slot.id}" data-sticky-id="${s.id}" data-est="${s.estimated_minutes}" data-recurrence="${s.recurrence_type || 'once'}" style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--gray-50);">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
-              <div style="font-weight:700;font-size:14px;">${s.title}</div>
+              <div style="font-weight:700;font-size:14px;">${s.title}${isRecurSticky ? ' <span style="font-size:10px;background:#dbeafe;color:#2563eb;padding:1px 6px;border-radius:3px;font-weight:500;">🔁 ルーティン</span>' : ''}</div>
               <div style="font-size:11px;color:var(--gray-500);margin-top:2px;">${sh}:${sm} - ${eh}:${em} ・ 想定 ${s.estimated_minutes}分</div>
             </div>
             <div style="display:flex;gap:4px;flex-wrap:wrap;">
@@ -4443,7 +4547,11 @@ const App = {
             <label style="font-size:11px;color:var(--gray-600);">実績(分)</label>
             <input type="number" class="form-input report-actual" min="0" placeholder="${s.estimated_minutes}" value="${draft.actual_minutes || ''}" style="max-width:120px;padding:6px 8px;font-size:12px;">
           </div>
-          <textarea class="form-textarea report-comment" rows="2" placeholder="この付箋に対するコメント（任意）" style="margin-top:8px;font-size:12px;">${draft.comment || ''}</textarea>
+          ${this.renderStickyCommentHistory(s.comments || [])}
+          <div style="margin-top:6px;">
+            <label style="font-size:11px;color:var(--gray-600);display:block;margin-bottom:4px;">今日のコメント</label>
+            <textarea class="form-textarea report-comment" rows="2" placeholder="コメントを入力（送信時にタイムスタンプ付きで付箋に保存されます）" style="font-size:12px;">${draft.comment || ''}</textarea>
+          </div>
         </div>`;
       });
       html += '</div>';
@@ -4634,12 +4742,14 @@ const App = {
       const action = slotEl.querySelector('input[type="radio"]:checked')?.value || 'done';
       const actual = parseInt(slotEl.querySelector('.report-actual').value);
       const comment = slotEl.querySelector('.report-comment').value.trim();
+      const recurrenceType = slotEl.dataset.recurrence || 'once';
       slots.push({
         slot_id: slotId,
         sticky_id: stickyId,
         action,
         actual_minutes: isNaN(actual) ? est : actual,
-        comment
+        comment,
+        recurrence_type: recurrenceType
       });
     });
     return slots;
@@ -4720,15 +4830,41 @@ const App = {
       // 各付箋の状態を更新
       const now = new Date().toISOString();
       for (const s of summary) {
+        const isRoutine = s.recurrence_type && s.recurrence_type !== 'once';
+        const updateData = {};
+
+        // アクション別の付箋状態更新
         if (s.action === 'done') {
-          await db.updateSticky(s.sticky_id, {
-            status: 'archived',
-            actual_minutes: s.actual_minutes,
-            completion_note: s.comment || '完了',
-            archived_at: now
-          }).catch(() => {});
-        } else if (s.action === 'continue') {
-          // 翌日に再配置（重複しない場合のみ）
+          if (isRoutine) {
+            updateData.actual_minutes = s.actual_minutes;
+          } else {
+            updateData.status = 'archived';
+            updateData.actual_minutes = s.actual_minutes;
+            updateData.completion_note = s.comment || '完了';
+            updateData.archived_at = now;
+          }
+        } else if (s.action === 'skip') {
+          updateData.priority = 'low';
+        }
+
+        // コメントがあればタイムスタンプ付きで付箋の comments 配列に追記
+        if (s.comment) {
+          const cachedSticky = (this.state.reportStickies || []).find(st => st.id === s.sticky_id);
+          const existing = Array.isArray(cachedSticky?.comments) ? cachedSticky.comments : [];
+          updateData.comments = [...existing, {
+            text: s.comment,
+            timestamp: now,
+            action: s.action,
+            report_date: today
+          }];
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          await db.updateSticky(s.sticky_id, updateData).catch(() => {});
+        }
+
+        // continue: 翌日に再配置（重複しない場合のみ）
+        if (s.action === 'continue') {
           const exists = tomorrowSlots.some(ts => ts.sticky_id === s.sticky_id);
           if (!exists) {
             await db.createTimelineSlot({
@@ -4740,8 +4876,6 @@ const App = {
               status: 'planned'
             }).catch(() => {});
           }
-        } else if (s.action === 'skip') {
-          await db.updateSticky(s.sticky_id, { priority: 'low' }).catch(() => {});
         }
       }
 
