@@ -4018,6 +4018,12 @@ const App = {
     }
 
     this.state.tlSlots = slots; // drop 時の重複チェック用キャッシュ
+    // 重なり判定メッセージ用に slot_id → 付箋タイトルのマップを保持
+    this.state.tlStickyTitles = {};
+    slots.forEach(sl => {
+      const st = stickies.find(s => s.id === sl.sticky_id);
+      this.state.tlStickyTitles[sl.id] = st ? st.title : '配置済みの付箋';
+    });
     this.setupTimelineDnD();
     document.getElementById('tlDate').addEventListener('change', (e) => {
       this.state.tlDate = e.target.value;
@@ -4167,18 +4173,16 @@ const App = {
         const startMin = parseInt(slot.dataset.min);
         if (!stickyId || isNaN(dur) || isNaN(startMin)) return;
 
-        // 重複チェック
+        // 重なりチェック（時間帯が1分でも重なる付箋は配置不可）
         const endMin = startMin + dur;
         const existing = (this.state.tlSlots || []).find(s => {
           const sEnd = s.start_minutes + s.duration_minutes;
           return startMin < sEnd && s.start_minutes < endMin;
         });
         if (existing) {
-          const sh = String(Math.floor(existing.start_minutes / 60)).padStart(2, '0');
-          const sm = String(existing.start_minutes % 60).padStart(2, '0');
-          const eh = String(Math.floor((existing.start_minutes + existing.duration_minutes) / 60)).padStart(2, '0');
-          const em = String((existing.start_minutes + existing.duration_minutes) % 60).padStart(2, '0');
-          this.toast(`⚠️ ${sh}:${sm}〜${eh}:${em} の付箋と重なります`, 'error');
+          const fmt = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+          const title = this.state.tlStickyTitles?.[existing.id] || '配置済みの付箋';
+          this.toast(`⚠️ 「${title}」(${fmt(existing.start_minutes)}〜${fmt(existing.start_minutes + existing.duration_minutes)}) と重なるため配置できません`, 'error');
           return;
         }
 
@@ -4442,10 +4446,23 @@ const App = {
   },
 
   async deleteSticky(id) {
+    // 完了アーカイブは削除不可（見送りアーカイブ・通常の付箋は削除可）
+    let sticky = null;
+    try {
+      const arr = await db.request('GET', `/stickies?id=eq.${id}&limit=1`);
+      sticky = Array.isArray(arr) ? arr[0] : arr;
+    } catch {}
+    if (sticky && sticky.status === 'archived' && (sticky.archive_reason || 'completed') === 'completed') {
+      this.toast('完了アーカイブは削除できません', 'error');
+      return;
+    }
     if (!confirm('この付箋を削除しますか？\n（配置済みのスロットも削除されます）')) return;
     try {
       await db.deleteSticky(id);
-      this.renderTimelineTab();
+      // 開いているタブに応じて再描画
+      const activeLogsTab = document.querySelector('.logs-tab.active')?.dataset.tab;
+      if (activeLogsTab === 'archive') this.renderStickyArchiveTab();
+      else this.renderTimelineTab();
       this.toast('削除しました');
     } catch (e) {
       this.toast('エラー: ' + e.message, 'error');
@@ -4517,17 +4534,23 @@ const App = {
           </div>`;
         items.forEach(s => {
           const staff = this.state.staff.find(x => x.id === s.staff_id);
+          const isSkipped = s.archive_reason === 'skipped';
+          const reasonBadge = isSkipped
+            ? '<span class="badge" style="background:#fef3c7;color:#92400e;font-size:9px;">⏸ 見送り</span>'
+            : '<span class="badge" style="background:#dcfce7;color:#166534;font-size:9px;">✅ 完了</span>';
           listHtml += `<div class="card" style="padding:10px 14px;margin-bottom:6px;">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
               <div style="flex:1;min-width:0;">
-                <div style="font-weight:600;font-size:13px;">${s.title}</div>
+                <div style="font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px;">${reasonBadge}<span>${s.title}</span></div>
                 <div style="font-size:11px;color:var(--gray-500);margin-top:2px;">
                   想定 ${s.estimated_minutes}分 ${s.actual_minutes ? `→ 実績 ${s.actual_minutes}分` : ''}
                   ${auth.isCEO() && staff ? ` ・ ${staff.name}` : ''}
                 </div>
                 ${s.completion_note ? `<div style="font-size:11px;color:var(--gray-700);margin-top:4px;padding:6px 8px;background:var(--gray-50);border-radius:4px;">${s.completion_note}</div>` : ''}
               </div>
-              <button class="btn btn-sm" style="background:none;border:none;color:var(--gray-400);" onclick="App.deleteSticky('${s.id}')">🗑</button>
+              ${isSkipped
+                ? `<button class="btn btn-sm" style="background:none;border:none;color:var(--gray-400);" onclick="App.deleteSticky('${s.id}')" title="見送りアーカイブは削除できます">🗑</button>`
+                : `<span style="font-size:11px;color:var(--gray-300);" title="完了アーカイブは削除できません">🔒</span>`}
             </div>
           </div>`;
         });
@@ -4646,9 +4669,13 @@ const App = {
       html += `<p class="text-muted" style="font-size:13px;text-align:center;padding:20px;">この日のタイムラインは未設定です。<br>「タイムライン作成」タブで付箋を配置してください。</p>`;
     } else {
       html += '<div id="reportSlots">';
+      const seenStickyIds = new Set();
       todaySlots.forEach(slot => {
         const s = stickyMap[slot.sticky_id];
         if (!s) return;
+        // 同じ付箋が複数スロットにある場合は1回だけ表示（重複防止）
+        if (seenStickyIds.has(slot.sticky_id)) return;
+        seenStickyIds.add(slot.sticky_id);
         const draft = draftMap[slot.id] || {};
         const sh = String(Math.floor(slot.start_minutes / 60)).padStart(2, '0');
         const sm = String(slot.start_minutes % 60).padStart(2, '0');
@@ -4956,8 +4983,8 @@ const App = {
       const tomorrow = t.toISOString().slice(0, 10);
       const comment = document.getElementById('reportComment')?.value.trim() || '';
 
-      // 翌日のタイムライン取得
-      const tomorrowSlots = await db.getTimelineSlots(staffId, tomorrow).catch(() => []);
+      // 今日のタイムライン取得（継続→ボックスに戻す際にスロットを掃除するため）
+      const todaySlots = await db.getTimelineSlots(staffId, today).catch(() => []);
 
       // 各付箋の状態を更新
       const now = new Date().toISOString();
@@ -4968,15 +4995,26 @@ const App = {
         // アクション別の付箋状態更新
         if (s.action === 'done') {
           if (isRoutine) {
+            // ルーティンは付箋を残す（毎日繰り返すため）
             updateData.actual_minutes = s.actual_minutes;
           } else {
+            // 完了 → アーカイブ（削除不可）
             updateData.status = 'archived';
+            updateData.archive_reason = 'completed';
             updateData.actual_minutes = s.actual_minutes;
             updateData.completion_note = s.comment || '完了';
             updateData.archived_at = now;
           }
         } else if (s.action === 'skip') {
-          updateData.priority = 'low';
+          // 見送り → 見送りフラグを立ててアーカイブ（削除可）
+          updateData.status = 'archived';
+          updateData.archive_reason = 'skipped';
+          updateData.actual_minutes = s.actual_minutes;
+          updateData.completion_note = s.comment || '見送り';
+          updateData.archived_at = now;
+        } else if (s.action === 'continue') {
+          // 継続 → 付箋ボックスに戻す（active 維持・配置解除）
+          if (!isRoutine) updateData.status = 'active';
         }
 
         // コメントがあればタイムスタンプ付きで付箋の comments 配列に追記
@@ -4995,18 +5033,11 @@ const App = {
           await db.updateSticky(s.sticky_id, updateData).catch(() => {});
         }
 
-        // continue: 翌日に再配置（重複しない場合のみ）
+        // continue: 今日のこの付箋のスロットを全て削除してボックスに戻す（重複スロットも一掃）
         if (s.action === 'continue') {
-          const exists = tomorrowSlots.some(ts => ts.sticky_id === s.sticky_id);
-          if (!exists) {
-            await db.createTimelineSlot({
-              sticky_id: s.sticky_id,
-              staff_id: staffId,
-              schedule_date: tomorrow,
-              start_minutes: 9 * 60,
-              duration_minutes: parseInt(document.querySelector(`.report-slot[data-sticky-id="${s.sticky_id}"]`)?.dataset.est) || 30,
-              status: 'planned'
-            }).catch(() => {});
+          const slotsToClear = todaySlots.filter(ts => ts.sticky_id === s.sticky_id);
+          for (const ts of slotsToClear) {
+            await db.deleteTimelineSlot(ts.id).catch(() => {});
           }
         }
       }
