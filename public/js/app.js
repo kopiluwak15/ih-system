@@ -1124,6 +1124,17 @@ const App = {
     });
   },
 
+  // グループLINEへ通知（失敗してもアプリ動作は止めない・fire-and-forget）
+  async notifyLine(text) {
+    try {
+      await fetch('/api/line-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+    } catch (e) { /* 通知失敗は無視 */ }
+  },
+
   setupButtons() {
     document.getElementById('addCompanyBtn')?.addEventListener('click', () => this.openCompanyModal());
     document.getElementById('addBusinessUnitBtn')?.addEventListener('click', () => this.openBusinessUnitModal());
@@ -1256,6 +1267,9 @@ const App = {
           title: 'タスク指示が届きました',
           message: data.title
         });
+        // グループLINEへ通知
+        const target = this.state.staff.find(s => s.id === data.assigned_to);
+        this.notifyLine(`📋 タスク指示が発行されました\n内容: ${data.title}${target ? `\n担当: ${target.name}` : ''}${data.deadline ? `\n期限: ${data.deadline}` : ''}`);
         await this.loadAllData();
         this.renderCurrentPage();
         this.toast('指示を送りました');
@@ -1309,6 +1323,8 @@ const App = {
           archived: true,
           archived_at: new Date().toISOString()
         });
+        // グループLINEへ通知
+        this.notifyLine(`🏁 タスク完了報告\n内容: ${t.title}\n報告者: ${auth.currentUser.name}${note ? `\n内容: ${note}` : ''}`);
         await this.loadAllData();
         this.renderCurrentPage();
         this.closeModal();
@@ -2980,6 +2996,8 @@ const App = {
             project_id: projectId
           });
         }
+        // グループLINEへ通知（承認依頼）
+        this.notifyLine(`📐 KPI/マイルストーン設計が提出されました（承認待ち）\n課題: ${p.title}\n担当: ${auth.currentUser.name}`);
         // 下書き削除
         localStorage.removeItem('design_draft_' + projectId);
         await this.loadAllData();
@@ -3365,6 +3383,9 @@ const App = {
         message: p.title + ' - 実行を開始してください',
         project_id: id
       });
+      // グループLINEへ通知
+      const assignee = this.state.staff.find(s => s.id === p.assigned_to);
+      this.notifyLine(`✅ 課題が承認されました（実行開始）\n課題: ${p.title}${assignee ? `\n担当: ${assignee.name}` : ''}`);
       await this.loadAllData();
       this.renderCurrentPage();
       this.toast('承認しました');
@@ -5090,6 +5111,12 @@ const App = {
           message: `${today} の日報が提出されました`
         }).catch(() => {});
       }
+
+      // グループLINEへ通知
+      const doneN = summary.filter(s => s.action === 'done').length;
+      const contN = summary.filter(s => s.action === 'continue').length;
+      const skipN = summary.filter(s => s.action === 'skip').length;
+      this.notifyLine(`📝 日報提出\n${auth.currentUser.name} さん（${today}）\n✅完了 ${doneN} / 🔄継続 ${contN} / ⏸見送り ${skipN}${projects.length ? ` / 📊進捗報告 ${projects.length}件` : ''}`);
 
       this.toast('日報を送信しました');
       // タイムラインタブに移動
