@@ -29,27 +29,8 @@ const App = {
   },
 
   setupMobileMenu() {
-    const btn = document.getElementById('mobileMenuBtn');
-    const sidebar = document.getElementById('sidebar');
-    const overlay = document.getElementById('sidebarOverlay');
-    const closeSidebar = () => {
-      sidebar?.classList.remove('open');
-      overlay?.classList.remove('open');
-    };
-    btn?.addEventListener('click', () => {
-      sidebar?.classList.toggle('open');
-      overlay?.classList.toggle('open');
-    });
-    overlay?.addEventListener('click', closeSidebar);
-    // ナビ項目クリック後は常にドロワーを閉じる（全画面ドロワー化したため）
-    document.querySelectorAll('.nav-item').forEach(item => {
-      item.addEventListener('click', closeSidebar);
-    });
-    // ヘッダーのロゴ → ホーム（スローガン）
-    document.getElementById('headerHome')?.addEventListener('click', () => {
-      this.navigate('home');
-      closeSidebar();
-    });
+    // ドロワー開閉・ナビ・ロゴはHTMLのインラインonclickで処理（toggleSidebar/closeSidebar/navigate）。
+    // addEventListenerに依存しないため、初期化タイミングや一部環境の差異に強い。
   },
 
   async loadAllData() {
@@ -146,12 +127,7 @@ const App = {
 
   // ===== Navigation =====
   setupNavigation() {
-    document.querySelectorAll('.nav-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const page = item.dataset.page;
-        this.navigate(page);
-      });
-    });
+    // ナビはHTMLのインラインonclick（App.navigate）で処理する。
   },
 
   navigate(page) {
@@ -159,6 +135,17 @@ const App = {
     document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === page));
     this.state.currentPage = page;
     this.renderCurrentPage();
+    this.closeSidebar(); // ナビ後はドロワーを閉じる
+  },
+
+  // ===== ドロワー開閉（インラインonclickから呼ぶ・初期化タイミングに依存しない） =====
+  toggleSidebar() {
+    document.getElementById('sidebar')?.classList.toggle('open');
+    document.getElementById('sidebarOverlay')?.classList.toggle('open');
+  },
+  closeSidebar() {
+    document.getElementById('sidebar')?.classList.remove('open');
+    document.getElementById('sidebarOverlay')?.classList.remove('open');
   },
 
   renderCurrentPage() {

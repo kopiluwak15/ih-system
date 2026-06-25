@@ -27,6 +27,10 @@
   --shadow-lg: 0 10px 25px rgba(0,0,0,0.08), 0 4px 10px rgba(0,0,0,0.04);
 }
 
+html, body {
+  max-width: 100%;
+  overflow-x: hidden; /* 横はみ出し防止（スマホ） */
+}
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
   background: var(--bg);
@@ -1548,10 +1552,11 @@ body {
 .assignee-project:hover { background: var(--gray-100); }
 .assignee-project.deadline-overdue { border-left: 3px solid #ef4444; }
 .assignee-project.deadline-warning { border-left: 3px solid #f59e0b; }
-.assignee-project-row { display: flex; align-items: center; gap: 6px; }
+.assignee-project-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .assignee-project-title {
   font-size: 12px; font-weight: 600; color: var(--gray-800);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0; flex: 1 1 auto;
 }
 @media (max-width: 768px) {
   .assignee-grid { grid-template-columns: 1fr; }

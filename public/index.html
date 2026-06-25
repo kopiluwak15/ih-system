@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="IH-SYSTEM">
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/styles.css?v=20260625b">
 </head>
 <body>
 
@@ -48,12 +48,12 @@
 
   <!-- 上部ヘッダー（全画面で☰メニュー展開） -->
   <div class="mobile-header">
-    <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="メニュー">☰</button>
-    <div class="mobile-header-title" id="headerHome" style="cursor:pointer;">🎯 IH-SYSTEM</div>
+    <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="メニュー" onclick="App.toggleSidebar()">☰</button>
+    <div class="mobile-header-title" id="headerHome" style="cursor:pointer;" onclick="App.navigate('home')">🎯 IH-SYSTEM</div>
   </div>
 
   <!-- サイドバー開閉オーバーレイ -->
-  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="App.closeSidebar()"></div>
 
   <!-- ===== Sidebar ===== -->
   <aside class="sidebar" id="sidebar">
@@ -62,35 +62,35 @@
       <p>経営構造化管理</p>
     </div>
     <nav class="sidebar-nav">
-      <div class="nav-item active" data-page="home">
+      <div class="nav-item active" data-page="home" onclick="App.navigate('home')">
         <span class="icon">🏠</span><span>ホーム</span>
       </div>
-      <div class="nav-item" data-page="dashboard">
+      <div class="nav-item" data-page="dashboard" onclick="App.navigate('dashboard')">
         <span class="icon">📊</span><span>ダッシュボード</span>
       </div>
-      <div class="nav-item" data-page="projects">
+      <div class="nav-item" data-page="projects" onclick="App.navigate('projects')">
         <span class="icon">🎯</span><span>課題抽出</span>
       </div>
-      <div class="nav-item" data-page="design">
+      <div class="nav-item" data-page="design" onclick="App.navigate('design')">
         <span class="icon">📐</span><span>KPI/マイルストーン設計</span>
         <span id="approvalBadge" class="badge hidden">0</span>
       </div>
-      <div class="nav-item" data-page="logs">
+      <div class="nav-item" data-page="logs" onclick="App.navigate('logs')">
         <span class="icon">📝</span><span>日報作成</span>
       </div>
-      <div class="nav-item" data-page="instructions">
+      <div class="nav-item" data-page="instructions" onclick="App.navigate('instructions')">
         <span class="icon">📋</span><span>指示一覧</span>
         <span id="taskInstructionBadge" class="badge hidden">0</span>
       </div>
-      <div class="nav-item" data-page="notifications">
+      <div class="nav-item" data-page="notifications" onclick="App.navigate('notifications')">
         <span class="icon">🔔</span><span>通知</span>
         <span id="notificationBadge" class="badge hidden">0</span>
       </div>
       <div style="flex:1"></div>
-      <div class="nav-item" data-page="digital-twin" data-ceo-only>
+      <div class="nav-item" data-page="digital-twin" data-ceo-only onclick="App.navigate('digital-twin')">
         <span class="icon">🧠</span><span>デジタルツイン</span>
       </div>
-      <div class="nav-item" data-page="settings">
+      <div class="nav-item" data-page="settings" onclick="App.navigate('settings')">
         <span class="icon">⚙️</span><span>設定</span>
       </div>
     </nav>
@@ -328,9 +328,9 @@
 <div id="toastContainer"></div>
 
 <!-- ===== Scripts ===== -->
-<script src="js/supabase.js"></script>
-<script src="js/auth.js"></script>
-<script src="js/app.js"></script>
+<script src="js/supabase.js?v=20260625b"></script>
+<script src="js/auth.js?v=20260625b"></script>
+<script src="js/app.js?v=20260625b"></script>
 
 </body>
 </html>
