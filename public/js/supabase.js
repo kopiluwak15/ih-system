@@ -303,6 +303,24 @@ class SupabaseAPI {
   async deleteSlogan(id) {
     return this.request('DELETE', `/slogans?id=eq.${id}`);
   }
+
+  // ===== System Backlog（システムバックログ：将来仕組み化するシンクタンク） =====
+  async getSystemBacklog(status = null) {
+    const q = status ? `?status=eq.${status}&order=created_at.desc` : '?order=created_at.desc';
+    return this.request('GET', `/system_backlog${q}`);
+  }
+
+  async createSystemBacklog(data) {
+    return this.request('POST', '/system_backlog', data);
+  }
+
+  async updateSystemBacklog(id, data) {
+    return this.request('PATCH', `/system_backlog?id=eq.${id}`, data);
+  }
+
+  async deleteSystemBacklog(id) {
+    return this.request('DELETE', `/system_backlog?id=eq.${id}`);
+  }
 }
 
 const db = new SupabaseAPI();

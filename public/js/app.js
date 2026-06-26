@@ -156,6 +156,7 @@ const App = {
       design: () => this.renderDesignPage(),
       logs: () => this.renderLogs(),
       instructions: () => this.renderInstructionsPage(),
+      viewing: () => this.renderViewingPage(),
       notifications: () => this.renderNotifications(),
       settings: () => this.renderSettings(),
       'digital-twin': () => this.renderDigitalTwin()
@@ -1770,6 +1771,158 @@ const App = {
     const tBtn = document.getElementById('addTaskInstructionBtn');
     if (rBtn) rBtn.style.display = (isCEO && tabName === 'routine') ? '' : 'none';
     if (tBtn) tBtn.style.display = (isCEO && tabName === 'task') ? '' : 'none';
+  },
+
+  // ===== 閲覧ページ（CEO専用：日報 / システムバックログ） =====
+  renderViewingPage() {
+    if (!auth.isCEO()) {
+      document.getElementById('viewingPaneReports').innerHTML = '<div class="text-muted" style="padding:40px;text-align:center;">アクセス権がありません</div>';
+      return;
+    }
+    if (!this._viewingTabsSetup) {
+      this._viewingTabsSetup = true;
+      document.querySelectorAll('.viewing-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          const name = tab.dataset.tab;
+          document.querySelectorAll('.viewing-tab').forEach(t => t.classList.toggle('active', t === tab));
+          document.getElementById('viewingPaneReports').classList.toggle('active', name === 'reports');
+          document.getElementById('viewingPaneBacklog').classList.toggle('active', name === 'backlog');
+          if (name === 'backlog') this.renderSystemBacklog(); else this.renderViewingReports();
+        });
+      });
+    }
+    const activeTab = document.querySelector('.viewing-tab.active')?.dataset.tab || 'reports';
+    if (activeTab === 'backlog') this.renderSystemBacklog(); else this.renderViewingReports();
+  },
+
+  // 日報タブ：全員の提出済み日報を新しい順に一覧
+  async renderViewingReports() {
+    const pane = document.getElementById('viewingPaneReports');
+    pane.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div>';
+    let reports = [];
+    try {
+      const all = await db.getDailyReports();
+      reports = all
+        .filter(r => (r.status || 'submitted') === 'submitted')
+        .sort((a, b) => (b.submitted_at || b.report_date || '').localeCompare(a.submitted_at || a.report_date || ''));
+    } catch (e) {
+      pane.innerHTML = `<div style="color:var(--danger);padding:20px;">読み込みエラー: ${e.message}</div>`;
+      return;
+    }
+    if (reports.length === 0) {
+      pane.innerHTML = this.emptyState('📝', '日報がありません', 'スタッフが日報を提出するとここに表示されます');
+      return;
+    }
+
+    // 付箋タイトルを一括取得してキャッシュ（「(削除済み付箋)」表示を防ぐ）
+    try {
+      const ids = new Set();
+      reports.forEach(r => {
+        (Array.isArray(r.timeline_summary) ? r.timeline_summary : []).forEach(s => s.sticky_id && ids.add(s.sticky_id));
+        (Array.isArray(r.tomorrow_schedule) ? r.tomorrow_schedule : []).forEach(s => s.sticky_id && ids.add(s.sticky_id));
+      });
+      if (!this._stickyTitleCache) this._stickyTitleCache = {};
+      const need = [...ids].filter(id => !this._stickyTitleCache[id]);
+      if (need.length > 0) {
+        const rows = await db.request('GET', `/stickies?id=in.(${need.join(',')})&select=id,title`);
+        (rows || []).forEach(row => { this._stickyTitleCache[row.id] = row.title; });
+      }
+    } catch (e) { /* 取得失敗してもカードは表示する */ }
+
+    pane.innerHTML = `<div style="margin-bottom:10px;font-size:12px;color:var(--gray-500);">全員の提出済み日報 ${reports.length}件（新しい順）</div>`
+      + reports.map(r => this.renderHistoryReportCard(r)).join('');
+  },
+
+  // システムバックログタブ：入力 + アクティブ一覧
+  async renderSystemBacklog() {
+    const pane = document.getElementById('viewingPaneBacklog');
+    pane.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div>';
+    let items = [];
+    try {
+      items = await db.getSystemBacklog('active');
+    } catch (e) {
+      pane.innerHTML = `<div class="card" style="border-color:var(--danger);"><div style="color:var(--danger);font-size:13px;">読み込みエラー: ${e.message}<br><span style="font-size:11px;">system_backlog テーブルが未作成の可能性があります（SQLを実行してください）</span></div></div>`;
+      return;
+    }
+
+    let html = `
+      <div class="card" style="background:linear-gradient(135deg,#eff6ff,#dbeafe);margin-bottom:14px;">
+        <div style="font-weight:700;font-size:14px;color:#1e3a8a;margin-bottom:4px;">🗂 システムバックログ（シンクタンク）</div>
+        <p style="font-size:12px;color:#1e40af;line-height:1.6;">将来システム化を図るべきことを箇条書きで貯めます。着手したらアーカイブへ移動します。</p>
+      </div>
+      <div class="card" style="margin-bottom:14px;">
+        <label class="form-label">新しい項目を追加</label>
+        <textarea id="backlogInput" class="form-textarea" rows="2" placeholder="例: 店舗ごとの在庫を自動集計する仕組みが欲しい"></textarea>
+        <div style="text-align:right;margin-top:8px;">
+          <button class="btn btn-primary" onclick="App.addSystemBacklog()">＋ 追加</button>
+        </div>
+      </div>
+    `;
+
+    if (items.length === 0) {
+      html += this.emptyState('🗂', 'バックログは空です', '将来仕組み化したいことを上から追加してください');
+    } else {
+      html += `<div style="font-size:12px;color:var(--gray-500);margin-bottom:8px;">未着手 ${items.length}件</div>`;
+      html += items.map(it => {
+        const when = it.created_at ? this.formatDate(it.created_at) : '';
+        return `<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start;">
+          <span style="color:var(--primary);font-weight:700;flex-shrink:0;">・</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word;">${this.esc(it.content)}</div>
+            <div class="text-muted" style="font-size:11px;margin-top:6px;">🖊 ${this.esc(it.created_by_name || '不明')} ・ ${when}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
+            <button class="btn btn-sm btn-success" onclick="App.archiveSystemBacklog('${it.id}')" title="仕組み化に着手→アーカイブ">🏗 着手</button>
+            <button class="btn btn-sm" style="background:none;border:none;color:var(--gray-400);" onclick="App.deleteSystemBacklog('${it.id}')" title="削除">🗑</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+    pane.innerHTML = html;
+  },
+
+  async addSystemBacklog() {
+    const input = document.getElementById('backlogInput');
+    const content = (input?.value || '').trim();
+    if (!content) { this.toast('内容を入力してください', 'error'); return; }
+    try {
+      await db.createSystemBacklog({
+        content,
+        created_by: auth.currentUser.id,
+        created_by_name: auth.currentUser.name,
+        status: 'active'
+      });
+      this.toast('追加しました');
+      this.renderSystemBacklog();
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  async archiveSystemBacklog(id) {
+    if (!confirm('この項目の仕組み化に着手しますか？\nアーカイブに移動します（日報→アーカイブで確認できます）。')) return;
+    try {
+      await db.updateSystemBacklog(id, {
+        status: 'archived',
+        archived_at: new Date().toISOString(),
+        archived_by: auth.currentUser.id
+      });
+      this.toast('着手としてアーカイブしました');
+      this.renderSystemBacklog();
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
+  },
+
+  async deleteSystemBacklog(id) {
+    if (!confirm('この項目を削除しますか？')) return;
+    try {
+      await db.deleteSystemBacklog(id);
+      this.toast('削除しました');
+      this.renderSystemBacklog();
+    } catch (e) {
+      this.toast('エラー: ' + e.message, 'error');
+    }
   },
 
   // ===== Dashboard =====
@@ -4566,6 +4719,33 @@ const App = {
       });
     }
 
+    // システムバックログ（着手済み）の当月分（CEOのみ）
+    let backlogHtml = '';
+    if (auth.isCEO()) {
+      try {
+        const archivedBacklog = await db.getSystemBacklog('archived');
+        const blInMonth = (archivedBacklog || []).filter(b => {
+          if (!b.archived_at) return false;
+          const d = b.archived_at.slice(0, 10);
+          return d >= monthStart && d <= monthEnd;
+        });
+        if (blInMonth.length > 0) {
+          backlogHtml = `<div style="margin-top:18px;">
+            <div style="font-size:12px;font-weight:700;color:var(--gray-700);margin-bottom:6px;border-bottom:2px solid #6366f1;padding-bottom:4px;">🏗 システムバックログ（着手済み）${blInMonth.length}件</div>
+            ${blInMonth.map(b => `<div class="card" style="padding:10px 14px;margin-bottom:6px;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;">${this.esc(b.content)}</div>
+                  <div class="text-muted" style="font-size:11px;margin-top:4px;">🖊 ${this.esc(b.created_by_name || '不明')} ・ 着手 ${b.archived_at ? this.formatDate(b.archived_at) : '-'}</div>
+                </div>
+                <button class="btn btn-sm" style="background:none;border:none;color:var(--gray-400);" onclick="App.deleteSystemBacklog('${b.id}');setTimeout(()=>App.renderStickyArchiveTab(),300);" title="削除">🗑</button>
+              </div>
+            </div>`).join('')}
+          </div>`;
+        }
+      } catch (e) { /* バックログ未作成でもアーカイブ表示は続行 */ }
+    }
+
     pane.innerHTML = `
       <div class="tl-toolbar">
         <button class="btn btn-sm btn-secondary" onclick="App.shiftArchiveMonth(-1)">← 前月</button>
@@ -4575,6 +4755,7 @@ const App = {
         <span class="text-muted" style="font-size:11px;">${inMonth.length}件 / ${Math.floor(totalMin / 60)}時間${totalMin % 60}分</span>
       </div>
       ${listHtml}
+      ${backlogHtml}
     `;
   },
 

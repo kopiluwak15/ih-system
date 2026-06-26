@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="IH-SYSTEM">
-  <link rel="stylesheet" href="css/styles.css?v=20260625b">
+  <link rel="stylesheet" href="css/styles.css?v=20260625c">
 </head>
 <body>
 
@@ -81,6 +81,9 @@
       <div class="nav-item" data-page="instructions" onclick="App.navigate('instructions')">
         <span class="icon">📋</span><span>指示一覧</span>
         <span id="taskInstructionBadge" class="badge hidden">0</span>
+      </div>
+      <div class="nav-item" data-page="viewing" data-ceo-only onclick="App.navigate('viewing')">
+        <span class="icon">👁</span><span>閲覧</span>
       </div>
       <div class="nav-item" data-page="notifications" onclick="App.navigate('notifications')">
         <span class="icon">🔔</span><span>通知</span>
@@ -318,6 +321,24 @@
       <div id="notificationsContent"></div>
     </section>
 
+    <!-- Viewing (CEO専用：日報 / システムバックログ) -->
+    <section id="viewing" class="page">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">👁 閲覧</h2>
+          <p class="page-subtitle">全員の日報と、将来仕組み化するシステムバックログ</p>
+        </div>
+      </div>
+
+      <div class="settings-tabs" id="viewingTabs">
+        <button class="viewing-tab active" data-tab="reports">📝 日報</button>
+        <button class="viewing-tab" data-tab="backlog">🗂 システムバックログ</button>
+      </div>
+
+      <div id="viewingPaneReports" class="viewing-pane active"></div>
+      <div id="viewingPaneBacklog" class="viewing-pane"></div>
+    </section>
+
   </main>
 </div>
 
@@ -328,9 +349,9 @@
 <div id="toastContainer"></div>
 
 <!-- ===== Scripts ===== -->
-<script src="js/supabase.js?v=20260625b"></script>
-<script src="js/auth.js?v=20260625b"></script>
-<script src="js/app.js?v=20260625b"></script>
+<script src="js/supabase.js?v=20260625c"></script>
+<script src="js/auth.js?v=20260625c"></script>
+<script src="js/app.js?v=20260625c"></script>
 
 </body>
 </html>
