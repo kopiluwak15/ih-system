@@ -4655,9 +4655,10 @@ const App = {
       return;
     }
 
-    // 月でフィルタ
-    const monthStart = new Date(year, month, 1).toISOString().slice(0, 10);
-    const monthEnd = new Date(year, month + 1, 0).toISOString().slice(0, 10);
+    // 月でフィルタ（ローカル日付で組み立て：toISOStringのUTCずれで月末が欠ける不具合を回避）
+    const lastDayArc = new Date(year, month + 1, 0).getDate();
+    const monthStart = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const monthEnd = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDayArc).padStart(2, '0')}`;
     const inMonth = archived.filter(s => {
       if (!s.archived_at) return false;
       const d = s.archived_at.slice(0, 10);
@@ -5318,9 +5319,10 @@ const App = {
     const { year, month } = this.state.histYM;
     const flt = this.state.histStaffFilter;
 
-    // 月内 + フィルター適用
-    const monthStart = new Date(year, month, 1).toISOString().slice(0, 10);
-    const monthEnd = new Date(year, month + 1, 0).toISOString().slice(0, 10);
+    // 月内 + フィルター適用（ローカル日付で組み立て：toISOStringのUTCずれで月末が欠ける不具合を回避）
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const monthStart = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const monthEnd = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     let monthReports = reports.filter(r => r.report_date >= monthStart && r.report_date <= monthEnd);
     if (flt) monthReports = monthReports.filter(r => r.staff_id === flt);
 
