@@ -157,6 +157,7 @@ const App = {
       logs: () => this.renderLogs(),
       instructions: () => this.renderInstructionsPage(),
       viewing: () => this.renderViewingPage(),
+      loans: () => this.renderLoans(),
       notifications: () => this.renderNotifications(),
       settings: () => this.renderSettings(),
       'digital-twin': () => this.renderDigitalTwin()
@@ -1923,6 +1924,223 @@ const App = {
     } catch (e) {
       this.toast('エラー: ' + e.message, 'error');
     }
+  },
+
+  // ===== 融資（法人ごと） =====
+  fmtYen(n) {
+    const v = Number(n);
+    if (!n || isNaN(v)) return '¥0';
+    return '¥' + Math.round(v).toLocaleString('ja-JP');
+  },
+
+  async renderLoans() {
+    const container = document.getElementById('loansContent');
+    if (!auth.isCEO()) { container.innerHTML = '<div class="text-muted" style="padding:40px;text-align:center;">アクセス権がありません</div>'; return; }
+    container.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">読み込み中...</div>';
+
+    let loans = [];
+    try {
+      loans = await db.getLoans();
+    } catch (e) {
+      container.innerHTML = `<div class="card" style="border-color:var(--danger);"><div style="color:var(--danger);font-size:13px;">読み込みエラー: ${e.message}<br><span style="font-size:11px;">loans テーブルが未作成の可能性があります（SQLを実行してください）</span></div></div>`;
+      return;
+    }
+
+    const companies = this.state.companies || [];
+
+    // 全社合計（返済中のみ集計）
+    const activeLoans = loans.filter(l => l.status !== 'paid');
+    const totalBalance = activeLoans.reduce((s, l) => s + (Number(l.balance) || 0), 0);
+    const totalMonthly = activeLoans.reduce((s, l) => s + (Number(l.monthly_payment) || 0), 0);
+    const totalPrincipal = loans.reduce((s, l) => s + (Number(l.principal) || 0), 0);
+
+    let html = `
+      <div class="stats-grid" style="margin-bottom:16px;">
+        <div class="stat-card">
+          <div class="stat-label">💰 借入残高（全社）</div>
+          <div class="stat-value" style="font-size:20px;">${this.fmtYen(totalBalance)}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">📅 毎月返済額（全社）</div>
+          <div class="stat-value" style="font-size:20px;">${this.fmtYen(totalMonthly)}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">🏦 返済中の件数</div>
+          <div class="stat-value">${activeLoans.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">📊 借入総額（累計）</div>
+          <div class="stat-value" style="font-size:20px;">${this.fmtYen(totalPrincipal)}</div>
+        </div>
+      </div>
+    `;
+
+    if (loans.length === 0) {
+      html += this.emptyState('💰', '融資の登録がありません', '右上の「＋ 新規融資」から登録してください');
+      container.innerHTML = html;
+      return;
+    }
+
+    // 法人ごとにグループ化（借入がある法人のみ、残高の多い順）
+    const groups = companies.map(c => {
+      const cLoans = loans.filter(l => l.company_id === c.id);
+      return { company: c, loans: cLoans };
+    }).filter(g => g.loans.length > 0);
+    // 法人未設定の融資
+    const orphan = loans.filter(l => !companies.find(c => c.id === l.company_id));
+    if (orphan.length > 0) groups.push({ company: null, loans: orphan });
+
+    groups.sort((a, b) => {
+      const balA = a.loans.filter(l => l.status !== 'paid').reduce((s, l) => s + (Number(l.balance) || 0), 0);
+      const balB = b.loans.filter(l => l.status !== 'paid').reduce((s, l) => s + (Number(l.balance) || 0), 0);
+      return balB - balA;
+    });
+
+    html += '<div style="display:flex;flex-direction:column;gap:14px;">';
+    groups.forEach(g => {
+      const cName = g.company ? g.company.name : '（法人未設定）';
+      const cCode = g.company ? g.company.code : '-';
+      const act = g.loans.filter(l => l.status !== 'paid');
+      const cBalance = act.reduce((s, l) => s + (Number(l.balance) || 0), 0);
+      const cMonthly = act.reduce((s, l) => s + (Number(l.monthly_payment) || 0), 0);
+
+      html += `<div class="card" style="padding:0;overflow:hidden;">
+        <div style="background:var(--gray-900);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+          <div style="font-weight:700;font-size:15px;">${this.esc(cName)} <span style="font-size:11px;opacity:0.6;">${this.esc(cCode)}</span></div>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;">
+            <span>残高 <strong style="font-size:15px;">${this.fmtYen(cBalance)}</strong></span>
+            <span>毎月 <strong style="font-size:15px;">${this.fmtYen(cMonthly)}</strong></span>
+            <span>${act.length}件</span>
+          </div>
+        </div>
+        <div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px;">
+          ${g.loans.sort((a,b) => (a.status==='paid'?1:0)-(b.status==='paid'?1:0)).map(l => this.loanRowHtml(l)).join('')}
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+
+    container.innerHTML = html;
+  },
+
+  loanRowHtml(l) {
+    const paid = l.status === 'paid';
+    const rate = (l.interest_rate != null && l.interest_rate !== '') ? `${l.interest_rate}%` : '-';
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;${paid ? 'opacity:0.6;' : ''}background:var(--gray-50);cursor:pointer;" onclick="App.openLoanModal('${l.id}')">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;">
+        <div style="font-weight:700;font-size:14px;">${this.esc(l.lender || '(金融機関未設定)')}
+          ${paid ? '<span class="badge" style="background:#dcfce7;color:#166534;font-size:9px;">完済</span>' : '<span class="badge" style="background:#dbeafe;color:#1e40af;font-size:9px;">返済中</span>'}
+        </div>
+        <div style="font-size:13px;font-weight:700;color:${paid ? 'var(--gray-400)' : 'var(--danger)'};">残高 ${this.fmtYen(l.balance)}</div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--gray-600);margin-top:6px;">
+        <span>借入 ${this.fmtYen(l.principal)}</span>
+        <span>毎月 ${this.fmtYen(l.monthly_payment)}</span>
+        <span>金利 ${rate}</span>
+        ${l.loan_date ? `<span>実行 ${l.loan_date}</span>` : ''}
+      </div>
+      ${l.note ? `<div style="font-size:11px;color:var(--gray-700);margin-top:6px;padding:6px 8px;background:#fff;border-radius:4px;white-space:pre-wrap;">${this.esc(l.note)}</div>` : ''}
+    </div>`;
+  },
+
+  async openLoanModal(id = null) {
+    let existing = null;
+    if (id) {
+      try {
+        const arr = await db.request('GET', `/loans?id=eq.${id}&limit=1`);
+        existing = Array.isArray(arr) ? arr[0] : arr;
+      } catch (e) { this.toast('取得エラー: ' + e.message, 'error'); return; }
+    }
+    const companies = this.state.companies || [];
+    const companyOptions = companies.map(c =>
+      `<option value="${c.id}" ${existing?.company_id === c.id ? 'selected' : ''}>${c.name}（${c.code}）</option>`
+    ).join('');
+
+    this.showModal(id ? '💰 融資を編集' : '＋ 新規融資', `
+      <div class="form-group">
+        <label class="form-label">法人 *</label>
+        <select id="ln_company" class="form-select">
+          <option value="">選択してください</option>
+          ${companyOptions}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">金融機関 *</label>
+        <input type="text" id="ln_lender" class="form-input" placeholder="例: 熊本銀行 / 日本政策金融公庫" value="${(existing?.lender || '').replace(/"/g,'&quot;')}">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">借入額（円）</label>
+          <input type="number" id="ln_principal" class="form-input" min="0" step="1" placeholder="例: 10000000" value="${existing?.principal ?? ''}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">現在残高（円）</label>
+          <input type="number" id="ln_balance" class="form-input" min="0" step="1" placeholder="例: 7500000" value="${existing?.balance ?? ''}">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">毎月返済額（円）</label>
+          <input type="number" id="ln_monthly" class="form-input" min="0" step="1" placeholder="例: 150000" value="${existing?.monthly_payment ?? ''}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">金利（%）</label>
+          <input type="number" id="ln_rate" class="form-input" min="0" step="0.01" placeholder="例: 1.5" value="${existing?.interest_rate ?? ''}">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">借入日</label>
+          <input type="date" id="ln_date" class="form-input" value="${existing?.loan_date || ''}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">状態</label>
+          <select id="ln_status" class="form-select">
+            <option value="active" ${existing?.status !== 'paid' ? 'selected' : ''}>返済中</option>
+            <option value="paid" ${existing?.status === 'paid' ? 'selected' : ''}>完済</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">メモ</label>
+        <textarea id="ln_note" class="form-textarea" rows="2" placeholder="保証協会・資金使途・据置期間など（任意）">${existing?.note || ''}</textarea>
+      </div>
+      ${id ? `<div style="text-align:right;margin-top:4px;"><button type="button" class="btn btn-sm btn-danger" onclick="App.deleteLoan('${id}')">🗑 この融資を削除</button></div>` : ''}
+    `, async () => {
+      const company_id = document.getElementById('ln_company').value;
+      const lender = document.getElementById('ln_lender').value.trim();
+      if (!company_id) { this.toast('法人を選択してください', 'error'); return false; }
+      if (!lender) { this.toast('金融機関は必須です', 'error'); return false; }
+      const numOrNull = (elId) => { const v = document.getElementById(elId).value; return v === '' ? null : Number(v); };
+      const data = {
+        company_id,
+        lender,
+        principal: numOrNull('ln_principal'),
+        balance: numOrNull('ln_balance'),
+        monthly_payment: numOrNull('ln_monthly'),
+        interest_rate: numOrNull('ln_rate'),
+        loan_date: document.getElementById('ln_date').value || null,
+        status: document.getElementById('ln_status').value,
+        note: document.getElementById('ln_note').value.trim() || null,
+        updated_at: new Date().toISOString()
+      };
+      try {
+        if (id) { await db.updateLoan(id, data); this.toast('更新しました'); }
+        else { await db.createLoan(data); this.toast('融資を登録しました'); }
+        this.renderLoans();
+        return true;
+      } catch (e) { this.toast('エラー: ' + e.message, 'error'); return false; }
+    }, false, { submitLabel: id ? '💾 更新' : '➕ 登録', submitClass: 'btn-primary' });
+  },
+
+  async deleteLoan(id) {
+    if (!confirm('この融資を削除しますか？')) return;
+    try {
+      await db.deleteLoan(id);
+      this.closeModal();
+      this.toast('削除しました');
+      this.renderLoans();
+    } catch (e) { this.toast('エラー: ' + e.message, 'error'); }
   },
 
   // ===== Dashboard =====

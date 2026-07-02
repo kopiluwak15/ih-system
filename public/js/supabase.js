@@ -321,6 +321,23 @@ class SupabaseAPI {
   async deleteSystemBacklog(id) {
     return this.request('DELETE', `/system_backlog?id=eq.${id}`);
   }
+
+  // ===== Loans（融資・借入：法人ごと） =====
+  async getLoans() {
+    return this.request('GET', '/loans?order=created_at.desc');
+  }
+
+  async createLoan(data) {
+    return this.request('POST', '/loans', data);
+  }
+
+  async updateLoan(id, data) {
+    return this.request('PATCH', `/loans?id=eq.${id}`, data);
+  }
+
+  async deleteLoan(id) {
+    return this.request('DELETE', `/loans?id=eq.${id}`);
+  }
 }
 
 const db = new SupabaseAPI();
